@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Frontend build output
+dist/
+frontend/dist/
+backend/target/
+backend/data/*.db
+backend/data/*.db-*
+backend/data/*.sqlite
+backend/data/*.sqlite3
+
+# Configuration & Credentials (NEVER commit)
+config.json
+.env
+.env.local
+
+# Logs & Output
+logs/
+*.log
+applied-jobs.json
+
+# System files
+.DS_Store
+.vscode/
+*.swp
+*.swo
+*~

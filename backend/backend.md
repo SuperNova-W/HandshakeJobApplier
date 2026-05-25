@@ -1,0 +1,154 @@
+# Backend Implementation Notes
+
+This is the living implementation document for the local Spring Boot companion backend.
+
+## Current Status
+
+- Status: backend scaffold created
+- Framework: Spring Boot
+- Java version target: 21
+- Build tool: Maven
+- Current scope: app bootstrap, localhost binding, extension CORS config, SQLite datasource config, Flyway migration skeleton, DB-backed health endpoint
+- Not implemented yet: settings API, runs API, applications API, repository/service layer
+
+## Directory Structure
+
+```text
+backend/
+├── pom.xml
+├── backend.md
+├── data/
+│   └── .gitkeep
+└── src/
+    ├── main/
+    │   ├── java/com/handshakeautoapply/backend/
+    │   │   ├── HandshakeAutoApplyBackendApplication.java
+    │   │   ├── config/
+    │   │   │   └── WebCorsConfig.java
+    │   │   ├── database/
+    │   │   │   └── DatabaseStatusService.java
+    │   │   └── health/
+    │   │       ├── HealthController.java
+    │   │       └── HealthResponse.java
+    │   └── resources/
+    │       ├── application.properties
+    │       └── db/migration/
+    │           └── V1__create_initial_schema.sql
+    └── test/
+        └── java/com/handshakeautoapply/backend/
+            └── HandshakeAutoApplyBackendApplicationTests.java
+```
+
+## What Exists Now
+
+### `pom.xml`
+- Spring Boot parent project
+- Includes:
+  - `spring-boot-starter-web`
+  - `spring-boot-starter-jdbc`
+  - `spring-boot-starter-validation`
+  - `spring-boot-starter-actuator`
+  - `flyway-core`
+  - `flyway-database-sqlite`
+  - `sqlite-jdbc`
+  - `spring-boot-starter-test`
+
+### `HandshakeAutoApplyBackendApplication.java`
+- Main Spring Boot application entrypoint
+
+### `WebCorsConfig.java`
+- Allows extension-origin requests to `/api/**`
+- Uses `chrome-extension://*` pattern for the Chrome extension
+
+### `HealthController.java`
+- Exposes `GET /api/health`
+- Current response:
+  - `status`
+  - `version`
+  - `database`
+
+### `DatabaseStatusService.java`
+- Uses the configured datasource to run `SELECT 1`
+- Returns a simple DB health string for the custom health endpoint
+
+### `application.properties`
+- Binds the backend to:
+  - `127.0.0.1`
+  - port `8765`
+- Configures SQLite datasource at `./data/handshake-auto-apply.db`
+- Enables Flyway migrations from `classpath:db/migration`
+
+### `db/migration/V1__create_initial_schema.sql`
+- Creates the initial SQLite tables:
+  - `settings`
+  - `application_runs`
+  - `applications`
+- Inserts the default `settings` row
+- Adds indexes for run lookups and duplicate prevention
+
+### Test Skeleton
+- Spring context smoke test only
+
+## Current API Surface
+
+### `GET /api/health`
+
+Current placeholder response shape:
+
+```json
+{
+  "status": "UP",
+  "version": "0.1.0",
+  "database": "CONNECTED"
+}
+```
+
+The `database` field now reflects a live SQLite connectivity check. If the datasource is unavailable, it should return `UNAVAILABLE`.
+
+## Not Implemented Yet
+
+- `settings` table
+- `application_runs` table
+- `applications` table
+- `GET /api/settings`
+- `PUT /api/settings`
+- `POST /api/runs`
+- `POST /api/runs/{runId}/applications`
+- `PATCH /api/runs/{runId}`
+- `GET /api/runs`
+- duplicate preflight endpoint
+
+## Local Run Notes
+
+The project is scaffolded as a Maven-based Spring Boot app, but this machine currently does not have `mvn` installed.
+
+To run it once Maven is installed:
+
+```bash
+cd /Users/yashponnaganti/Documents/dev/handshakeProject/backend
+mvn spring-boot:run
+```
+
+Expected local address:
+
+```text
+http://127.0.0.1:8765/api/health
+```
+
+## Recommended Next Backend Increment
+
+Build the first real API surface next:
+
+1. Add a settings module on top of the `settings` table.
+2. Implement:
+   - `GET /api/settings`
+   - `PUT /api/settings`
+3. Add request/response DTOs and validation.
+4. Keep persistence simple at first, likely with `JdbcTemplate`.
+
+## Design Rules
+
+- Bind only to `127.0.0.1`
+- Do not store Handshake credentials
+- Keep API contracts aligned with `MVP.md`
+- Treat this backend as a local companion API only
