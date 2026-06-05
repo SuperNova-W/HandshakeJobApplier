@@ -1,0 +1,340 @@
+/* Handshake Auto-Apply — documents options page, v2 design system
+   (crisp white cards on warm cream, switchable cobalt accent, all-sans). */
+@import "../shared/design-tokens.css";
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+.page {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 44px 24px 72px;
+}
+
+.page-header h1 {
+  margin: 0 0 8px;
+  font-size: var(--h1-size);
+}
+.page-header p {
+  margin: 0 0 28px;
+  color: var(--ink-2);
+  line-height: 1.55;
+  max-width: 60ch;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+@media (max-width: 680px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border-hair);
+  border-radius: var(--r-card);
+  padding: 20px;
+  box-shadow: var(--shadow-card);
+}
+.other-card {
+  margin-top: 16px;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.card-head h2 {
+  margin: 0;
+  font-size: 17px;
+}
+.card-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+.card-title svg {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.btn svg {
+  flex-shrink: 0;
+}
+
+.hint {
+  margin: 8px 0 16px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+
+/* ---- Badges ---- */
+.badge {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  background: var(--idle-bg);
+  color: var(--idle-ink);
+}
+.badge-on {
+  background: var(--go-bg);
+  color: var(--go-ink);
+}
+
+/* ---- File rows ---- */
+.file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.file-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.file-meta strong {
+  font-size: 14px;
+  color: var(--ink-1);
+  overflow-wrap: anywhere;
+}
+.file-meta span {
+  font-size: 12px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ---- Buttons ---- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 15px;
+  border-radius: var(--r-btn);
+  border: 1px solid transparent;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: none;
+  line-height: 1;
+  transition: transform 140ms ease, background 140ms ease, box-shadow 140ms ease;
+}
+.btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-strong);
+  box-shadow: var(--shadow-btn);
+}
+.btn-secondary {
+  background: var(--surface);
+  color: var(--ink-1);
+  border-color: var(--border-hair);
+}
+.btn-secondary:hover:not(:disabled) {
+  background: var(--paper-1);
+}
+.btn-ghost {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.btn-ghost:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 18%, white);
+}
+.btn-danger {
+  background: var(--surface);
+  color: var(--stop-ink);
+  border-color: color-mix(in srgb, var(--stop-ink) 28%, transparent);
+}
+.btn-danger:hover:not(:disabled) {
+  background: var(--stop-bg);
+}
+
+.upload-label {
+  width: 100%;
+  justify-content: center;
+}
+
+/* ---- Other documents ---- */
+.other-add {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.text-input {
+  flex: 1 1 220px;
+  padding: 9px 12px;
+  border: 1px solid var(--border-hair);
+  border-radius: var(--r-btn);
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--ink-1);
+  background: var(--paper-1);
+}
+.text-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.other-list {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.other-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-well);
+  background: var(--surface-2);
+}
+
+/* ---- Screening answers ---- */
+.screening-card {
+  margin-top: 16px;
+}
+.field {
+  margin-top: 18px;
+}
+.field-label {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink-1);
+  margin-bottom: 10px;
+}
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--border-hair);
+  border-radius: var(--r-btn);
+  overflow: hidden;
+  background: var(--paper-1);
+}
+.seg-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 9px 22px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+.seg-btn + .seg-btn {
+  border-left: 1px solid var(--border-hair);
+}
+.seg-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+  color: var(--ink-2);
+  cursor: pointer;
+  margin-bottom: 12px;
+}
+.toggle-row input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px 5px 12px;
+  border-radius: var(--r-pill);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+.chip button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 50%;
+  opacity: 0.7;
+}
+.chip button:hover {
+  opacity: 1;
+  background: color-mix(in srgb, var(--accent) 18%, white);
+}
+.chips-empty {
+  margin: 12px 0 0;
+}
+.screening-actions {
+  margin-top: 18px;
+  align-items: center;
+}
+.inline-status {
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+.status {
+  margin-top: 24px;
+  padding: 12px 14px;
+  border-radius: var(--r-well);
+  background: var(--surface);
+  border: 1px solid var(--border-hair);
+  box-shadow: var(--shadow-card);
+  font-size: 13px;
+  color: var(--ink-2);
+}

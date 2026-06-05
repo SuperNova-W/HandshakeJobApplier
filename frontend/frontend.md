@@ -7,8 +7,8 @@ This is the living implementation document for the Chrome extension frontend. It
 - Status: frontend scaffold created
 - Build system: Vite + React + TypeScript
 - Extension target: Chrome Manifest V3
-- Current scope: popup shell, manifest wiring, placeholder background state, content-script bootstrap, shared contracts
-- Not implemented yet: backend integration, real run orchestration, Handshake automation
+- Current scope: popup shell, manifest wiring, backend health probing, background-owned run state, content-script start/stop messaging, shared contracts
+- Not implemented yet: backend settings/runs API completion, persisted run orchestration, Handshake automation
 
 ## Stack
 
@@ -37,6 +37,7 @@ frontend/
     │   ├── main.tsx
     │   └── styles.css
     └── shared/
+        ├── backendApi.ts
         ├── constants.ts
         ├── contracts.ts
         └── handshake.ts
@@ -94,15 +95,16 @@ frontend/
 #### `App.tsx`
 - Main popup component
 - Current responsibilities:
-  - fetch placeholder runtime state from background
+  - fetch runtime state from background
+  - refresh backend health through background
   - inspect active tab URL
   - classify current page as supported or unsupported
-  - render placeholder start/stop controls
-  - display placeholder backend panel, run panel, and active-page panel
+  - render start/stop controls
+  - display backend, run, active-page, settings, and recent-runs panels
 - Current buttons:
   - `Start`
   - `Stop`
-  - `Sync State`
+  - `Refresh`
   - `Refresh Page`
 
 #### `styles.css`
@@ -114,11 +116,14 @@ frontend/
 #### `index.ts`
 - Background service worker scaffold
 - Holds in-memory runtime state for the extension
-- Handles current placeholder messages:
+- Probes the local backend for health, settings, and recent runs
+- Creates/finalizes runs through the backend contract when the companion API supports it
+- Sends start/stop messages to the active Handshake content script
+- Handles current runtime messages:
   - `runtime/get`
-  - `runtime/start-placeholder`
-  - `runtime/stop-placeholder`
-- No backend API calls yet
+  - `runtime/refresh`
+  - `runtime/start`
+  - `runtime/stop`
 - No persistent storage yet
 
 ### `src/content/`
@@ -126,8 +131,13 @@ frontend/
 #### `index.ts`
 - Content-script bootstrap
 - Runs on supported Handshake domains
-- Currently only logs page URL and inferred support status
+- Responds to background start/stop messages
+- Reports broad page support and a visible job-candidate count
 - No DOM scraping or apply logic yet
+
+#### `backendApi.ts`
+- Small fetch client for the local companion API
+- Includes health, settings, recent runs, run creation, and run finalization helpers
 
 ### `src/shared/`
 
@@ -155,29 +165,27 @@ frontend/
 The frontend currently supports these flows:
 
 1. Load the popup in Chrome
-2. Query the background worker for placeholder runtime state
+2. Query the background worker for runtime state
 3. Inspect the current active tab URL
 4. Mark the page as `supported`, `unsupported`, or `unknown`
-5. Start a placeholder run if the active tab is on a supported Handshake domain
-6. Stop that placeholder run
-7. Re-sync popup state from the background worker
+5. Refresh backend health through the background worker
+6. Start a run if the active tab is on a supported Handshake domain and the backend health endpoint is online
+7. Send start/stop messages to the content script
+8. Stop an active run through the background worker
 
-This is intentionally only a frontend skeleton. It proves the extension wiring, popup rendering, message passing, and active-tab inspection.
+This now proves the extension control plane. The apply loop is still intentionally unimplemented.
 
 ## Not Implemented Yet
 
-- `GET /api/health` integration
-- `GET /api/settings` and `PUT /api/settings`
-- run creation through backend
-- run finalization through backend
-- recent run history UI
-- persisted settings UI
+- editable settings UI
+- complete backend settings/runs/application API implementation
+- persisted run state across service worker restarts
 - content-script DOM detection for job listings
 - apply-button detection
 - skip-reason classification
 - pagination
 - duplicate checks against backend
-- real stop orchestration
+- real apply-loop stop orchestration
 
 ## Local Run Commands
 

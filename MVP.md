@@ -598,6 +598,27 @@ Response:
 
 This endpoint is small but important because it lets the extension skip previously applied jobs before clicking the button.
 
+### 15.9 AI Document Endpoints (post-MVP)
+
+OpenAI-backed document generation, added after the core MVP. Generation runs
+server-side so the API key and the user's stored files never reach the browser;
+all of these require `OPENAI_API_KEY` in the backend environment.
+
+- `POST /api/cover-letter` — generates a cover letter from the stored resume + the
+  scraped job; `POST /api/cover-letter/pdf` renders the reviewed text to a PDF.
+- `POST /api/other-docs/generate` — a retrieval-augmented (RAG) agent that drafts
+  the *extra* document an employer requests in the "Attach other required
+  documents" gate. It retrieves the user's stored materials (resume, GitHub
+  project, transcript, and any `OTHER` uploads), then asks the model to draft the
+  requested document grounded in them plus the job description and the employer's
+  instructions. Returns `{ document, model, generatedAt, sources }`.
+- `POST /api/other-docs/pdf` — renders the reviewed agent document to a PDF for the
+  extension to attach into the apply modal.
+
+In the extension, the "other required documents" overlay surfaces this as a
+**"Generate it from my documents (AI)"** option alongside Save / Blank PDF / Skip /
+Stop: it drafts, lets the user review/edit, then attaches the PDF and submits.
+
 ## 16. Extension-Backend Interaction Model
 
 ### Run Start

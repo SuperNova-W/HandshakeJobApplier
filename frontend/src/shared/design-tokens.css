@@ -1,0 +1,183 @@
+/* =============================================================
+   Handshake Auto-Apply — Color & Type Foundations  (v2)
+   Clean & modern: crisp white surfaces over warm cream paper,
+   all sans-serif type, a switchable accent (default cobalt).
+   No green. Originated from SuperNova-W/HandshakeJobApplier,
+   then re-skinned per design direction.
+   ============================================================= */
+
+/* --- Fonts ---------------------------------------------------
+   One clean grotesk for everything (display, body, eyebrow,
+   metrics). Hanken Grotesk = humanist, modern, friendly, NOT a
+   default trope (Inter/Roboto avoided). Numerals use tabular
+   figures for the metric counters. Swap freely. */
+@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap');
+
+:root {
+  /* ---------- Neutrals: warm cream paper kept, white surfaces ---------- */
+  --paper-0: #fffdf9;   /* warm white — page top */
+  --paper-1: #f7f2e8;   /* cream — page base */
+  --paper-2: #efe9db;   /* sunk well fill */
+  --paper-3: #e7e0cf;   /* deeper well / idle chip */
+  --paper-4: #ddd4be;   /* track / stepper edge */
+  --surface:  #ffffff;  /* crisp card face */
+  --surface-2:#fbfaf6;  /* very-subtly-warm secondary surface */
+
+  /* ---------- Ink / text ---------- */
+  --ink-1: #1b1a16;     /* near-black, warm */
+  --ink-2: #56524a;     /* secondary */
+  --ink-3: #837e71;     /* muted / labels */
+  --ink-4: #a39d8d;     /* faint */
+  --ink-on-accent: #ffffff;
+
+  /* ---------- ACCENT (switchable) — default Cobalt ----------
+     Override --accent / --accent-strong / --accent-soft / --accent-ink
+     to retheme the whole system in one place. */
+  --accent:        #2f5fe0;   /* primary action */
+  --accent-strong: #2549bf;   /* hover / pressed */
+  --accent-soft:   #e7ecfd;   /* tinted fill (chips, ghost) */
+  --accent-ink:    #1d3a93;   /* text on soft fill */
+
+  /* curated alternates (used by the UI-kit color Tweak) */
+  --opt-cobalt:  #2f5fe0; --opt-cobalt-strong: #2549bf; --opt-cobalt-soft: #e7ecfd; --opt-cobalt-ink: #1d3a93;
+  --opt-indigo:  #5b46e5; --opt-indigo-strong: #4a36cf; --opt-indigo-soft: #ece9fd; --opt-indigo-ink: #3a2aa6;
+  --opt-amber:   #c9761b; --opt-amber-strong:  #ad6212; --opt-amber-soft:  #fbeed8; --opt-amber-ink:  #8a4f10;
+  --opt-crimson: #d2384a; --opt-crimson-strong:#b62a3b; --opt-crimson-soft:#fce2e4; --opt-crimson-ink:#9c2433;
+
+  /* ---------- Semantic status ----------
+     Active / running / online borrow the ACCENT (no green).
+     Stop / error use terracotta-red. Idle is neutral cream. */
+  --go-bg:   var(--accent-soft);
+  --go-ink:  var(--accent-ink);
+  --stop-bg: #fbe2dd;
+  --stop-ink:#b23a2b;
+  --idle-bg: var(--paper-3);
+  --idle-ink:#6a6457;
+  --warn-bg: #fbeed8;
+  --warn-ink:#8a4f10;
+
+  /* ---------- Borders & lines ---------- */
+  --border-hair: rgba(27, 26, 22, 0.10);
+  --border-soft: rgba(27, 26, 22, 0.06);
+  --border-ink:  rgba(27, 26, 22, 0.16);
+
+  /* ---------- Radii (crisp, modern) ---------- */
+  --r-pill: 999px;
+  --r-card: 16px;
+  --r-well: 12px;
+  --r-btn:  10px;
+  --r-chip: 999px;
+
+  /* ---------- Shadows (subtle layered, clean) ---------- */
+  --shadow-card: 0 1px 2px rgba(27,26,22,0.05), 0 6px 20px rgba(27,26,22,0.06);
+  --shadow-pop:  0 1px 3px rgba(27,26,22,0.08), 0 18px 44px rgba(27,26,22,0.14);
+  --shadow-btn:  0 4px 12px color-mix(in srgb, var(--accent) 30%, transparent);
+
+  /* ---------- Gradients ---------- */
+  --grad-page: linear-gradient(180deg, var(--paper-0) 0%, var(--paper-1) 100%);
+  --grad-accent: linear-gradient(145deg,
+      color-mix(in srgb, var(--accent) 92%, white),
+      var(--accent-strong));
+
+  /* ---------- Spacing scale (popup is compact) ---------- */
+  --s-1: 4px;  --s-2: 8px;  --s-3: 10px; --s-4: 12px;
+  --s-5: 14px; --s-6: 18px; --s-7: 24px; --s-8: 32px;
+
+  /* ---------- Type families (all sans) ---------- */
+  --font-sans: "Hanken Grotesk", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-display: var(--font-sans);
+  --font-body: var(--font-sans);
+  --font-mono: var(--font-sans); /* legacy alias: metrics now use tabular sans */
+
+  /* ---------- Type roles ---------- */
+  /* Eyebrow — sans, uppercase, tracked */
+  --eyebrow-family: var(--font-sans);
+  --eyebrow-size: 11px;
+  --eyebrow-tracking: 0.16em;
+  --eyebrow-weight: 700;
+
+  --h1-family: var(--font-display);
+  --h1-size: 27px;
+  --h1-line: 1.04;
+  --h1-weight: 800;
+  --h1-tracking: -0.02em;
+
+  --h2-family: var(--font-display);
+  --h2-size: 19px;
+  --h2-line: 1.12;
+  --h2-weight: 700;
+
+  --label-family: var(--font-body);
+  --label-size: 14px;
+  --label-weight: 700;
+
+  --body-family: var(--font-body);
+  --body-size: 14px;
+  --body-line: 1.45;
+  --body-weight: 400;
+
+  --small-size: 13px;
+  --tiny-size: 12px;
+
+  /* Metric numerals — bold tabular sans */
+  --metric-family: var(--font-sans);
+  --metric-size: 24px;
+  --metric-weight: 800;
+
+  /* =====================================================
+     Backwards-compat aliases (old green token names →
+     new neutral/accent values) so earlier files keep
+     rendering. Prefer the names above for new work.
+     ===================================================== */
+  --parchment-1: var(--paper-0); --parchment-2: var(--paper-1);
+  --parchment-3: var(--paper-3); --parchment-4: var(--paper-4);
+  --surface-veil: var(--surface);
+  --forest-900: var(--ink-1); --forest-700: var(--accent);
+  --forest-600: var(--ink-2); --forest-500: var(--accent-strong);
+  --sage-100: var(--accent-soft); --sage-200: var(--accent-soft);
+  --sage-300: var(--accent-soft); --sage-ink: var(--accent-ink);
+  --wheat-300: var(--paper-3); --wheat-well: var(--paper-2);
+  --terra-100: var(--stop-bg); --terra-ink: var(--stop-ink);
+  --fg-1: var(--ink-1); --fg-2: var(--ink-2); --fg-3: var(--ink-3); --fg-4: var(--ink-3);
+  --fg-on-dark: var(--ink-on-accent); --fg-on-dark-soft: rgba(255,255,255,0.88);
+  --grad-hero: var(--grad-accent);
+}
+
+/* =============================================================
+   Semantic element defaults
+   ============================================================= */
+body {
+  font-family: var(--font-body);
+  font-size: var(--body-size);
+  line-height: var(--body-line);
+  color: var(--ink-1);
+  background: var(--grad-page);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+h1 {
+  font-family: var(--h1-family);
+  font-size: var(--h1-size);
+  line-height: var(--h1-line);
+  font-weight: var(--h1-weight);
+  letter-spacing: var(--h1-tracking);
+  margin: 0;
+}
+h2 {
+  font-family: var(--h2-family);
+  font-size: var(--h2-size);
+  line-height: var(--h2-line);
+  font-weight: var(--h2-weight);
+  margin: 0;
+}
+p { margin: 0; color: var(--ink-2); }
+
+.eyebrow {
+  font-family: var(--eyebrow-family);
+  font-size: var(--eyebrow-size);
+  letter-spacing: var(--eyebrow-tracking);
+  text-transform: uppercase;
+  font-weight: var(--eyebrow-weight);
+  color: var(--ink-3);
+}
+.tnum { font-variant-numeric: tabular-nums; }

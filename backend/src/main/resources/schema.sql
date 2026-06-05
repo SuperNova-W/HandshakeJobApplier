@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS settings (
     CHECK (stop_on_error IN (0, 1))
 );
 
-INSERT INTO settings (
+INSERT OR IGNORE INTO settings (
     id,
     apply_delay_ms,
     max_pages_per_run,
@@ -27,6 +27,58 @@ VALUES (
     CURRENT_TIMESTAMP,
     CURRENT_TIMESTAMP
 );
+
+-- Single-row store for user-provided content used as context for AI features
+-- (currently the resume text fed to the cover-letter generator).
+CREATE TABLE IF NOT EXISTS user_content (
+    id INTEGER PRIMARY KEY,
+    resume_text TEXT NULL,
+    updated_at TEXT NOT NULL,
+    CHECK (id = 1)
+);
+
+INSERT OR IGNORE INTO user_content (id, resume_text, updated_at)
+VALUES (1, NULL, CURRENT_TIMESTAMP);
+
+-- Single-row store for the answers the bot gives to common Handshake screening
+-- questions: US work authorization (Yes/No) and the locations the user is in or
+-- willing to relocate to (relocate_anywhere short-circuits any location question
+-- to "Yes"; relocate_locations is a JSON array of place strings matched against
+-- the question text). Kept in its own table (not user_content) so existing DBs
+-- don't need an ALTER — CREATE TABLE IF NOT EXISTS just adds it on next startup.
+CREATE TABLE IF NOT EXISTS screening_prefs (
+    id INTEGER PRIMARY KEY,
+    us_work_authorized INTEGER NOT NULL DEFAULT 1,
+    relocate_anywhere INTEGER NOT NULL DEFAULT 0,
+    relocate_locations TEXT NULL,
+    updated_at TEXT NOT NULL,
+    CHECK (id = 1),
+    CHECK (us_work_authorized IN (0, 1)),
+    CHECK (relocate_anywhere IN (0, 1))
+);
+
+INSERT OR IGNORE INTO screening_prefs (
+    id, us_work_authorized, relocate_anywhere, relocate_locations, updated_at
+)
+VALUES (1, 1, 0, NULL, CURRENT_TIMESTAMP);
+
+-- Uploaded application documents (resume, cover letter, transcript, the
+-- "coolest GitHub project" writeup, and arbitrary OTHER docs). Bytes are stored
+-- inline as a BLOB — files are small and this keeps everything in the one DB.
+-- Fixed types are single-slot (re-upload replaces); OTHER allows many.
+CREATE TABLE IF NOT EXISTS documents (
+    id TEXT PRIMARY KEY,
+    doc_type TEXT NOT NULL,
+    label TEXT NULL,
+    filename TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    data BLOB NOT NULL,
+    uploaded_at TEXT NOT NULL,
+    CHECK (doc_type IN ('RESUME', 'COVER_LETTER', 'TRANSCRIPT', 'GITHUB_PROJECT', 'OTHER'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_documents_doc_type ON documents(doc_type);
 
 CREATE TABLE IF NOT EXISTS application_runs (
     id TEXT PRIMARY KEY,
