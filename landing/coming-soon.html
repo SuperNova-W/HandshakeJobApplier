@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>HandShook — Coming soon to the Chrome Web Store</title>
+<meta name="description" content="HandShook is on its way to the Chrome Web Store. Auto-apply to native Handshake one-click jobs from your own logged-in session — local-first, no passwords stored." />
+<meta name="robots" content="noindex" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Sofia+Sans:ital,wght@0,300..700;1,400..500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+/* HandShook — Coming Soon (Mastercard design system, DESIGN.md) */
+:root{
+  --ink:#141413; --graphite:#565656; --slate:#696969; --on-ink:#f3f0ee; --on-ink-mute:rgba(243,240,238,.72);
+  --signal:#cf4500; --signal-light:#f37338;
+  --canvas:#f3f0ee; --lifted:#fcfbfa; --card:#ffffff;
+  --hairline:rgba(20,20,19,.12);
+  --r-btn:20px; --r-full:999px;
+  --ui:"Sofia Sans","SofiaSans",ui-sans-serif,system-ui,-apple-system,Arial,sans-serif;
+  --code:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --shadow-pill:0 4px 24px rgba(20,20,19,.05);
+  --shadow-card:0 24px 48px rgba(20,20,19,.08);
+}
+*{box-sizing:border-box;}
+html,body{height:100%;}
+body{margin:0; background:var(--canvas); color:var(--ink);
+  font-family:var(--ui); font-weight:450; line-height:1.45;
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  display:flex; flex-direction:column; min-height:100%;}
+a{color:inherit; text-decoration:none;}
+::selection{background:var(--ink); color:var(--on-ink);}
+:focus-visible{outline:2px solid var(--ink); outline-offset:3px; border-radius:12px;}
+.wrap{max-width:1200px; margin:0 auto; padding:0 32px; width:100%;}
+@media(max-width:768px){ .wrap{padding:0 20px;} }
+
+/* nav pill */
+.nav{padding-top:20px;}
+.nav-inner{height:60px; display:flex; align-items:center; padding:0 14px 0 24px;
+  background:var(--card); border:1px solid var(--hairline); border-radius:var(--r-full); box-shadow:var(--shadow-pill);}
+.brand{display:flex; align-items:center; gap:11px; font-family:var(--ui); font-weight:600; font-size:18px; letter-spacing:-.01em;}
+.brand .mark{position:relative; width:30px; height:22px; flex:0 0 auto;}
+.brand .mark::before,.brand .mark::after{content:""; position:absolute; top:0; width:22px; height:22px; border-radius:var(--r-full);}
+.brand .mark::before{left:0; background:var(--ink);}
+.brand .mark::after{right:0; background:var(--signal-light); mix-blend-mode:multiply;}
+.nav-back{margin-left:auto; font-size:15px; font-weight:500; color:var(--ink); display:inline-flex; align-items:center; gap:7px;}
+.nav-back svg{width:16px; height:16px;}
+
+/* buttons */
+.btn{display:inline-flex; align-items:center; justify-content:center; gap:8px; height:50px; padding:0 28px;
+  border-radius:var(--r-full); font-family:var(--ui); font-weight:500; font-size:16px; letter-spacing:-.01em;
+  border:1.5px solid transparent; cursor:pointer; transition:.18s ease;}
+.btn svg{width:18px; height:18px;}
+.btn-primary{background:var(--ink); color:var(--on-ink); border-color:var(--ink);}
+.btn-primary:hover{background:#000; transform:translateY(-2px); box-shadow:0 12px 28px rgba(20,20,19,.24);}
+.btn-outline{background:var(--card); color:var(--ink); border-color:var(--ink);}
+.btn-outline:hover{background:var(--ink); color:var(--on-ink); transform:translateY(-2px);}
+
+/* hero */
+.main{flex:1; display:flex; align-items:center;}
+.cs{display:grid; grid-template-columns:1.1fr .9fr; gap:56px; align-items:center; padding:64px 0 80px; width:100%;}
+@media(max-width:900px){ .cs{grid-template-columns:1fr; gap:24px; text-align:center; padding:48px 0 64px;} }
+.eyebrow{display:inline-flex; align-items:center; gap:8px; font-weight:700; font-size:13px; letter-spacing:.04em;
+  text-transform:uppercase; color:var(--slate); margin-bottom:22px;}
+.eyebrow::before{content:""; width:7px; height:7px; border-radius:var(--r-full); background:var(--signal-light);}
+@media(max-width:900px){ .eyebrow{justify-content:center;} }
+.cs h1{margin:0; font-family:var(--ui); font-weight:600; font-size:clamp(44px,8vw,80px); line-height:1.0; letter-spacing:-.02em; color:var(--ink);}
+.cs .lead{margin:24px 0 0; max-width:46ch; color:var(--graphite); font-size:clamp(17px,2.2vw,20px); line-height:1.5;}
+@media(max-width:900px){ .cs .lead{margin-left:auto; margin-right:auto;} }
+.cs-cta{margin-top:36px; display:flex; flex-wrap:wrap; gap:14px;}
+@media(max-width:900px){ .cs-cta{justify-content:center;} }
+.cs-note{margin-top:22px; font-size:14px; color:var(--slate); display:inline-flex; align-items:center; gap:9px;}
+.cs-note svg{width:16px; height:16px; color:var(--ink);}
+@media(max-width:900px){ .cs-note{justify-content:center;} }
+
+/* medallion visual (matches landing hero) */
+.visual{position:relative; display:flex; align-items:center; justify-content:center; min-height:340px;}
+@media(max-width:900px){ .visual{order:-1; min-height:260px;} }
+.orbit{position:absolute; width:116%; height:116%; border-radius:var(--r-full); border:1.5px solid transparent;
+  border-top-color:var(--signal-light); border-right-color:var(--signal-light); transform:rotate(-18deg); opacity:.7; animation:spin 60s linear infinite;}
+.orbit.o2{width:136%; height:136%; border-top-color:transparent; border-left-color:var(--signal-light); opacity:.4; animation:spin 90s linear infinite reverse;}
+@keyframes spin{to{transform:rotate(342deg);}}
+.medallion{position:relative; width:300px; height:300px; border-radius:var(--r-full); background:var(--lifted);
+  border:1px solid var(--hairline); box-shadow:var(--shadow-card); display:flex; align-items:center; justify-content:center;
+  animation:float 7s ease-in-out infinite alternate;}
+@media(max-width:520px){ .medallion{width:240px; height:240px;} }
+@keyframes float{from{transform:translateY(-6px);} to{transform:translateY(6px);}}
+.medallion-glow{position:absolute; inset:14%; border-radius:var(--r-full); background:radial-gradient(circle at 38% 32%, rgba(243,115,56,.22), transparent 62%);}
+.medallion-mark{position:relative; display:flex; flex-direction:column; align-items:center; gap:14px; color:var(--ink); text-align:center;}
+.medallion-mark .glyph{width:92px; height:92px; border-radius:var(--r-full); background:var(--ink); color:var(--on-ink); display:flex; align-items:center; justify-content:center;}
+.medallion-mark .glyph svg{width:42px; height:42px;}
+.medallion-mark .cap{font-family:var(--ui); font-weight:600; font-size:18px; letter-spacing:-.02em;}
+.medallion-mark .sub{font-size:13px; color:var(--slate);}
+.badge-soon{position:absolute; right:-8px; bottom:30px; display:inline-flex; align-items:center; gap:7px; height:38px; padding:0 16px;
+  background:var(--card); border:1px solid var(--hairline); border-radius:var(--r-full); box-shadow:var(--shadow-pill);
+  font-size:13px; font-weight:600; color:var(--ink);}
+.badge-soon .dot{width:7px; height:7px; border-radius:var(--r-full); background:var(--signal-light); position:relative;}
+.badge-soon .dot::after{content:""; position:absolute; inset:-4px; border-radius:var(--r-full); border:1.5px solid var(--signal-light); opacity:0; animation:pulseRing 2.2s ease-out infinite;}
+@keyframes pulseRing{0%{transform:scale(.7); opacity:.55;} 70%,100%{transform:scale(1.9); opacity:0;}}
+
+/* footer */
+.foot{padding:28px 0; border-top:1px solid var(--hairline); color:var(--slate); font-size:13px;
+  display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;}
+
+@media (prefers-reduced-motion: reduce){ *{animation:none !important;} }
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="index.html"><span class="mark"></span>HandShook</a>
+    <a class="nav-back" href="index.html">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+      Back to home
+    </a>
+  </div>
+</header>
+
+<main class="main">
+  <div class="wrap cs">
+    <div class="cs-copy">
+      <span class="eyebrow">Chrome Web Store</span>
+      <h1>Coming soon.</h1>
+      <p class="lead">HandShook is being prepared for the Chrome Web Store. One-click apply for native Handshake jobs — local-first, with your password never stored — is almost ready to install.</p>
+      <div class="cs-cta">
+        <a class="btn btn-primary" href="index.html">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+          Back to home
+        </a>
+        <a class="btn btn-outline" href="mailto:hello@handshook.app?subject=Notify%20me%20when%20HandShook%20launches">Notify me at launch</a>
+      </div>
+      <div class="cs-note">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.4 8.4 8 10 4.6-1.6 8-5 8-10V5Z"/><path d="m9 12 2 2 4-4"/></svg>
+        Local-first · runs entirely on <span style="font-family:var(--code);font-size:.92em">127.0.0.1</span>
+      </div>
+    </div>
+
+    <div class="visual" aria-hidden="true">
+      <span class="orbit"></span>
+      <span class="orbit o2"></span>
+      <div class="medallion">
+        <span class="medallion-glow"></span>
+        <div class="medallion-mark">
+          <span class="glyph">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11 3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          </span>
+          <span class="cap">HandShook</span>
+          <span class="sub">one-click apply</span>
+        </div>
+        <span class="badge-soon"><span class="dot"></span> In review</span>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer class="foot">
+  <div class="wrap" style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+    <span>© 2026 HandShook · Not affiliated with Handshake.</span>
+    <span>Coming soon to the Chrome Web Store</span>
+  </div>
+</footer>
+
+</body>
+</html>
