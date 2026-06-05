@@ -193,7 +193,7 @@ function App() {
           </div>
           <div className="topbar-heading">
             <span className="eyebrow">Chrome Extension</span>
-            <h1>Handshake Auto-Apply</h1>
+            <h1>HandShook</h1>
           </div>
         </div>
         <div className="topbar-actions">

@@ -1,4 +1,4 @@
-/* Handshake Auto-Apply — popup, restyled to the v2 design system
+/* HandShook — popup, restyled to the v2 design system
    (crisp white cards on warm cream, switchable cobalt accent, all-sans).
    Tokens live in ../shared/design-tokens.css; never hard-code hexes here. */
 @import "../shared/design-tokens.css";

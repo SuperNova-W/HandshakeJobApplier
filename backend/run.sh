@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Launches the Handshake Auto-Apply backend with the OpenAI key loaded from .env.
+# Launches the HandShook backend with the OpenAI key loaded from .env.
 #
 # The backend reads OPENAI_API_KEY from its process environment (System.getenv),
 # so this script sources .env and exports its vars before starting the jar.

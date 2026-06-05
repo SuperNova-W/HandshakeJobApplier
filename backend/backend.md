@@ -21,8 +21,8 @@ backend/
 │   └── .gitkeep
 └── src/
     ├── main/
-    │   ├── java/com/handshakeautoapply/backend/
-    │   │   ├── HandshakeAutoApplyBackendApplication.java
+    │   ├── java/com/handshook/backend/
+    │   │   ├── HandShookBackendApplication.java
     │   │   ├── config/
     │   │   │   └── WebCorsConfig.java
     │   │   ├── database/
@@ -35,8 +35,8 @@ backend/
     │       └── db/migration/
     │           └── V1__create_initial_schema.sql
     └── test/
-        └── java/com/handshakeautoapply/backend/
-            └── HandshakeAutoApplyBackendApplicationTests.java
+        └── java/com/handshook/backend/
+            └── HandShookBackendApplicationTests.java
 ```
 
 ## What Exists Now
@@ -51,7 +51,7 @@ backend/
   - `sqlite-jdbc`
   - `spring-boot-starter-test`
 
-### `HandshakeAutoApplyBackendApplication.java`
+### `HandShookBackendApplication.java`
 - Main Spring Boot application entrypoint
 
 ### `WebCorsConfig.java`
@@ -73,7 +73,7 @@ backend/
 - Binds the backend to:
   - `127.0.0.1`
   - port `8765`
-- Configures SQLite datasource at `./data/handshake-auto-apply.db`
+- Configures SQLite datasource at `./data/handshook.db`
 - Runs Spring SQL schema initialization from `classpath:schema.sql` on every startup (`spring.sql.init.mode=always`)
 
 ### `schema.sql`

@@ -11,11 +11,11 @@
     <relativePath />
   </parent>
 
-  <groupId>com.handshakeautoapply</groupId>
+  <groupId>com.handshook</groupId>
   <artifactId>backend</artifactId>
   <version>0.1.0</version>
-  <name>handshake-auto-apply-backend</name>
-  <description>Local Spring Boot companion API for the Handshake auto-apply extension</description>
+  <name>handshook-backend</name>
+  <description>Local Spring Boot companion API for the HandShook extension</description>
 
   <properties>
     <java.version>21</java.version>

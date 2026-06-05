@@ -1,4 +1,4 @@
-# Handshake Auto-Apply MVP
+# HandShook MVP
 
 ## Document Status
 - Status: Approved MVP specification

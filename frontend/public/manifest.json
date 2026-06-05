@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Handshake Auto-Apply",
+  "name": "HandShook",
   "version": "0.1.0",
   "description": "Chrome extension skeleton for Handshake one-click apply automation.",
   "permissions": ["storage", "activeTab", "tabs"],
@@ -19,7 +19,7 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Handshake Auto-Apply"
+    "default_title": "HandShook"
   },
   "options_ui": {
     "page": "options.html",

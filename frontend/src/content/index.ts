@@ -3046,7 +3046,7 @@ chrome.runtime.onMessage.addListener((message: ContentMessage, _sender, sendResp
 // On every page load, resume any in-progress run
 void continueSessionRun();
 
-log("Handshake Auto-Apply content script loaded", {
+log("HandShook content script loaded", {
   url: window.location.href,
   pageSupport,
   isOnJobDetailPage: isOnJobDetailPage()
