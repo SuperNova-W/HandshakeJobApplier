@@ -1,0 +1,684 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Handshake Auto-Apply — Apply to every one-click job, automatically</title>
+<meta name="description" content="A local-first Chrome extension that auto-applies to native Handshake one-click jobs from your own logged-in session. No passwords stored. Every result logged on your machine." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Sofia+Sans:ital,wght@0,300..700;1,400..500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+/* ============================================================
+   Handshake Auto-Apply — landing page
+   Design system: getdesign "mastercard" (DESIGN.md)
+   Warm putty-cream canvas · ink-black pill CTAs · oversized
+   radii (20 / 40 / 999) · circular portraits + satellite CTAs ·
+   traced orange orbital arcs · soft wide shadows · ink footer.
+   Signal Orange is decorative/consent only — never a marketing CTA.
+   Type -> Sofia Sans (MarkForMC substitute, declared fallback)
+   Code -> JetBrains Mono (terminal wells only)
+   ============================================================ */
+:root{
+  /* ink / text */
+  --ink:#141413; --charcoal:#262627; --graphite:#565656; --slate:#696969;
+  --granite:#555555; --dust:#d1cdc7; --on-ink:#f3f0ee; --on-ink-mute:rgba(243,240,238,.72);
+  /* signal / accent (decorative + consent only) */
+  --signal:#cf4500; --signal-light:#f37338; --clay:#9a3a0a; --link:#3860be;
+  /* surface */
+  --canvas:#f3f0ee; --lifted:#fcfbfa; --card:#ffffff; --bone:#f4f4f4;
+  --ink-surface:#141413; --ink-deep:#0e0e0d;
+  --hairline:rgba(20,20,19,.12); --hairline-strong:#141413; --divider-dark:rgba(255,255,255,.2);
+  /* radius — Mastercard scale */
+  --r-xs:6px; --r-sm:12px; --r-btn:20px; --r-lg:40px; --r-full:999px;
+  /* type */
+  --ui:"Sofia Sans","SofiaSans",ui-sans-serif,system-ui,-apple-system,Arial,sans-serif;
+  --display:var(--ui);
+  --code:"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* container */
+  --max:1200px;
+  /* shadows — wide, low-opacity atmospheric cushioning */
+  --shadow-pill:0 4px 24px rgba(20,20,19,.05);
+  --shadow-card:0 24px 48px rgba(20,20,19,.08);
+  --shadow-pop:0 36px 70px rgba(20,20,19,.14);
+}
+*{box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+body{
+  margin:0; background:var(--canvas); color:var(--ink);
+  font-family:var(--ui); font-size:16px; font-weight:450; line-height:1.45;
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+}
+a{color:inherit; text-decoration:none;}
+img{display:block; max-width:100%;}
+::selection{background:var(--ink); color:var(--on-ink);}
+:focus-visible{outline:2px solid var(--ink); outline-offset:3px; border-radius:var(--r-sm);}
+
+/* ---- type roles ---- */
+.display-xxl{font-family:var(--display); font-weight:600; font-size:clamp(44px,8vw,84px); line-height:1.0; letter-spacing:-.02em;}
+.display-xl{font-family:var(--display); font-weight:600; font-size:clamp(32px,4.6vw,52px); line-height:1.06; letter-spacing:-.02em;}
+.display-lg{font-family:var(--display); font-weight:600; font-size:clamp(28px,3.4vw,40px); line-height:1.1; letter-spacing:-.02em;}
+.display-md{font-family:var(--display); font-weight:600; font-size:26px; line-height:1.2; letter-spacing:-.02em;}
+.subtitle{font-size:clamp(16px,2.1vw,18px); line-height:1.5; color:var(--graphite); font-weight:450;}
+.eyebrow{display:inline-flex; align-items:center; gap:8px; font-family:var(--ui); font-weight:700; font-size:13px; letter-spacing:.04em; text-transform:uppercase; color:var(--slate);}
+.eyebrow::before{content:""; width:7px; height:7px; border-radius:var(--r-full); background:var(--signal-light); flex:0 0 auto;}
+.mono{font-family:var(--code); font-size:.92em;}
+
+/* ---- layout ---- */
+.wrap{max-width:var(--max); margin:0 auto; padding:0 32px;}
+.section{padding:112px 0;}
+.band{padding:128px 0;}
+@media(max-width:768px){ .section{padding:64px 0;} .band{padding:72px 0;} .wrap{padding:0 20px;} }
+
+/* ---- buttons (ink pill = primary) ---- */
+.btn{display:inline-flex; align-items:center; justify-content:center; gap:8px; height:46px; padding:0 26px;
+  border-radius:var(--r-full); font-family:var(--ui); font-weight:500; font-size:16px; letter-spacing:-.01em;
+  line-height:1; border:1.5px solid transparent; cursor:pointer; transition:.18s ease; white-space:nowrap;}
+.btn svg{width:18px; height:18px;}
+.btn-primary{background:var(--ink); color:var(--on-ink); border-color:var(--ink);}
+.btn-primary:hover{background:#000; border-color:#000;}
+.btn-outline{background:var(--card); color:var(--ink); border-color:var(--ink);}
+.btn-outline:hover{background:var(--ink); color:var(--on-ink);}
+.btn-ghost{height:38px; padding:0 16px; background:transparent; color:var(--ink); border-color:transparent;}
+.btn-ghost:hover{background:rgba(20,20,19,.06);}
+.btn-big{height:54px; padding:0 32px; font-size:17px;}
+
+/* ---- pills / badges ---- */
+.pill{display:inline-flex; align-items:center; gap:8px; height:36px; padding:0 16px;
+  border-radius:var(--r-full); font-size:13px; font-weight:500; background:var(--card);
+  border:1px solid var(--hairline); color:var(--ink);}
+.badge-status{display:inline-flex; align-items:center; gap:7px; padding:4px 12px; border-radius:var(--r-full);
+  background:var(--ink); color:var(--on-ink); font-size:12px; font-weight:600;}
+.badge-status .dot{width:6px; height:6px; border-radius:var(--r-full); background:var(--signal-light);}
+.badge-tag{display:inline-flex; padding:5px 12px; border-radius:var(--r-full); background:var(--canvas);
+  border:1px solid var(--hairline); font-size:12px; color:var(--ink); font-weight:500;}
+
+/* ============== NAV (floating white pill) ============== */
+.nav{position:sticky; top:0; z-index:50; padding-top:20px; padding-bottom:6px;
+  background:linear-gradient(180deg, var(--canvas) 62%, transparent);}
+.nav-inner{height:60px; display:flex; align-items:center; gap:28px; padding:0 14px 0 24px;
+  background:var(--card); border:1px solid var(--hairline); border-radius:var(--r-full); box-shadow:var(--shadow-pill);}
+.brand{display:flex; align-items:center; gap:11px; font-family:var(--display); font-weight:600; font-size:18px; letter-spacing:-.01em;}
+.brand .mark{position:relative; width:30px; height:22px; flex:0 0 auto;}
+.brand .mark::before,.brand .mark::after{content:""; position:absolute; top:0; width:22px; height:22px; border-radius:var(--r-full);}
+.brand .mark::before{left:0; background:var(--ink);}
+.brand .mark::after{right:0; background:var(--signal-light); mix-blend-mode:multiply;}
+.nav-links{display:flex; gap:30px; margin-left:10px; font-size:16px; font-weight:500; color:var(--ink);}
+.nav-links a{position:relative;}
+.nav-right{margin-left:auto; display:flex; align-items:center; gap:12px;}
+.nav-right .signin{font-size:16px; font-weight:500; color:var(--ink); padding:0 6px;}
+.icon-btn{width:44px; height:44px; border-radius:var(--r-full); border:1px solid var(--hairline);
+  background:var(--card); display:inline-flex; align-items:center; justify-content:center; transition:.18s ease;}
+.icon-btn:hover{border-color:var(--ink); background:var(--canvas);}
+.icon-btn svg{width:18px; height:18px;}
+@media(max-width:880px){ .nav-links,.nav-right .signin{display:none;} }
+
+/* ============== HERO (cream editorial + circular medallion) ============== */
+.hero{position:relative; overflow:hidden;}
+.hero-inner{display:grid; grid-template-columns:1.15fr .85fr; gap:48px; align-items:center; padding:84px 0 104px;}
+@media(max-width:980px){ .hero-inner{grid-template-columns:1fr; gap:8px; padding:56px 0 72px;} }
+.hero-copy{max-width:620px;}
+.hero-copy .eyebrow{margin-bottom:22px;}
+.hero h1{margin:0; color:var(--ink); max-width:15ch;}
+.hero .lead{margin:24px 0 0; max-width:48ch; color:var(--graphite); font-size:clamp(17px,2.2vw,20px); line-height:1.5;}
+.hero-cta{margin-top:36px; display:flex; flex-wrap:wrap; gap:14px;}
+.hero-note{margin-top:22px; font-size:14px; color:var(--slate); display:flex; align-items:center; gap:9px;}
+.hero-note svg{width:16px; height:16px; color:var(--ink);}
+
+/* circular portrait medallion + satellite CTA + orbital arc */
+.hero-visual{position:relative; display:flex; align-items:center; justify-content:center; min-height:380px;}
+@media(max-width:980px){ .hero-visual{min-height:320px; margin-top:8px;} }
+.orbit{position:absolute; width:118%; height:118%; border-radius:var(--r-full);
+  border:1.5px solid transparent; border-top-color:var(--signal-light); border-right-color:var(--signal-light);
+  transform:rotate(-18deg); opacity:.7;}
+.orbit.orbit-2{width:138%; height:138%; border-top-color:transparent; border-left-color:var(--signal-light); opacity:.4; transform:rotate(24deg);}
+.medallion{position:relative; width:320px; height:320px; border-radius:var(--r-full); background:var(--lifted);
+  border:1px solid var(--hairline); box-shadow:var(--shadow-card); display:flex; align-items:center; justify-content:center;}
+@media(max-width:520px){ .medallion{width:260px; height:260px;} }
+.medallion-glow{position:absolute; inset:14%; border-radius:var(--r-full);
+  background:radial-gradient(circle at 38% 32%, rgba(243,115,56,.22), transparent 62%);}
+.medallion-mark{position:relative; display:flex; flex-direction:column; align-items:center; gap:14px; color:var(--ink); text-align:center;}
+.medallion-mark .glyph{width:96px; height:96px; border-radius:var(--r-full); background:var(--ink); color:var(--on-ink);
+  display:flex; align-items:center; justify-content:center;}
+.medallion-mark .glyph svg{width:46px; height:46px;}
+.medallion-mark .cap{font-family:var(--display); font-weight:600; font-size:19px; letter-spacing:-.02em;}
+.medallion-mark .sub{font-size:13px; color:var(--slate);}
+.satellite{position:absolute; right:-6px; bottom:24px; width:60px; height:60px; border-radius:var(--r-full);
+  background:var(--card); border:1px solid var(--hairline); box-shadow:var(--shadow-pill);
+  display:flex; align-items:center; justify-content:center; color:var(--ink); transition:.2s ease;}
+.satellite svg{width:24px; height:24px;}
+.satellite:hover{background:var(--ink); color:var(--on-ink); transform:translateY(-2px);}
+
+/* ============== TRUST / METRICS STRIP ============== */
+.strip{border-top:1px solid var(--hairline); border-bottom:1px solid var(--hairline);}
+.metrics{display:grid; grid-template-columns:repeat(4,1fr); gap:0;}
+.metric{padding:44px 28px; border-right:1px solid var(--hairline);}
+.metric:last-child{border-right:none;}
+.metric .num{font-family:var(--display); font-weight:600; font-size:42px; letter-spacing:-.02em; line-height:1; color:var(--ink);}
+.metric .lbl{margin-top:12px; font-size:14px; color:var(--slate); line-height:1.4;}
+@media(max-width:768px){ .metrics{grid-template-columns:repeat(2,1fr);} .metric:nth-child(2){border-right:none;} .metric{border-bottom:1px solid var(--hairline);} }
+
+/* ============== SECTION HEADERS ============== */
+.head{max-width:700px; margin-bottom:56px;}
+.head .eyebrow{margin-bottom:18px;}
+.head .display-xl{margin:0;}
+.head p{margin:20px 0 0; color:var(--graphite); font-size:18px; line-height:1.5;}
+.head.center{margin-left:auto; margin-right:auto; text-align:center;}
+.head.center .eyebrow{justify-content:center;}
+.link-ink{color:var(--ink); font-weight:600; text-decoration:underline; text-underline-offset:3px;}
+
+/* ============== HOW IT WORKS (2-up: steps + code well) ============== */
+.split{display:grid; grid-template-columns:1.05fr 1fr; gap:56px; align-items:start;}
+@media(max-width:1024px){ .split{grid-template-columns:1fr; gap:40px;} }
+.steps{display:flex; flex-direction:column; gap:8px;}
+.step{display:grid; grid-template-columns:48px 1fr; gap:20px; padding:24px 0; border-bottom:1px solid var(--hairline);}
+.step:last-child{border-bottom:none;}
+.step .n{width:48px; height:48px; border-radius:var(--r-full); background:var(--ink); color:var(--on-ink);
+  font-family:var(--display); font-weight:600; font-size:19px; display:flex; align-items:center; justify-content:center;}
+.step h3{margin:8px 0 7px; font-size:21px; font-weight:600; letter-spacing:-.02em;}
+.step p{margin:0; color:var(--slate); font-size:15px; line-height:1.5;}
+.step code{font-family:var(--code); font-size:13px; background:var(--bone); padding:2px 7px; border-radius:var(--r-xs); color:var(--ink);}
+
+/* ============== CODE WELL ============== */
+.code-well{background:var(--ink-surface); border-radius:24px; overflow:hidden; box-shadow:var(--shadow-card);}
+.code-tabs{display:flex; gap:6px; padding:14px 16px; background:var(--ink-deep);}
+.code-tab{font-family:var(--code); font-size:11px; color:var(--on-ink-mute); padding:6px 12px; border-radius:var(--r-xs); cursor:default;}
+.code-tab.active{color:var(--on-ink); box-shadow:inset 0 -2px 0 var(--signal-light);}
+.code-body{padding:26px; overflow:auto;}
+.code-body pre{margin:0; font-family:var(--code); font-size:13.5px; line-height:1.7; color:var(--on-ink); white-space:pre; tab-size:2;}
+.c-mute{color:var(--on-ink-mute);}
+.c-org{color:var(--signal-light);}
+.c-grn{color:#cbbfae;}
+.c-key{color:#9fb4e6;}
+
+/* ============== FEATURE GRID ============== */
+.feature-band{background:var(--lifted);}
+.fgrid{display:grid; grid-template-columns:repeat(3,1fr); gap:22px;}
+@media(max-width:1024px){ .fgrid{grid-template-columns:repeat(2,1fr);} }
+@media(max-width:640px){ .fgrid{grid-template-columns:1fr;} }
+.fcard{background:var(--card); border:1px solid var(--hairline); border-radius:24px; padding:30px;}
+.fcard .ico{width:54px; height:54px; border-radius:var(--r-full); background:var(--canvas); border:1px solid var(--hairline);
+  display:flex; align-items:center; justify-content:center; color:var(--ink); margin-bottom:20px;}
+.fcard .ico svg{width:24px; height:24px;}
+.fcard h3{margin:0 0 9px; font-size:19px; font-weight:600; letter-spacing:-.02em;}
+.fcard p{margin:0; color:var(--slate); font-size:15px; line-height:1.5;}
+
+/* ============== DARK CODE-STORY BAND ============== */
+.dark-band{background:var(--ink-surface); color:var(--on-ink);}
+.dark-band .eyebrow{color:var(--on-ink-mute);}
+.dark-band h2{color:var(--on-ink);}
+.dark-band .lead{color:var(--on-ink-mute); font-size:18px; line-height:1.5; margin-top:20px; max-width:46ch;}
+.dark-band .check{display:flex; flex-direction:column; gap:15px; margin-top:30px;}
+.dark-band .check li{display:flex; gap:13px; align-items:flex-start; list-style:none; color:var(--on-ink-mute); font-size:15px;}
+.dark-band .check svg{width:20px; height:20px; flex:0 0 auto; color:var(--signal-light); margin-top:1px;}
+.dark-band ul{margin:0; padding:0;}
+.dark-band .code-well{box-shadow:none; border:1px solid var(--divider-dark); background:var(--ink-deep);}
+
+/* ---- skip-reason rows ---- */
+.reasons{margin-top:0;}
+.reason-row{display:grid; grid-template-columns:210px 1fr; gap:20px; padding:17px 0; border-bottom:1px solid var(--divider-dark); align-items:center;}
+.reason-row:last-child{border-bottom:none;}
+.reason-row .mono{font-size:13px; color:var(--signal-light); font-weight:500;}
+.reason-row p{margin:0; color:var(--on-ink-mute); font-size:15px;}
+@media(max-width:640px){ .reason-row{grid-template-columns:1fr; gap:4px;} }
+
+/* ============== FAQ ============== */
+.faq{max-width:840px; margin:0 auto;}
+.faq details{border-bottom:1px solid var(--hairline); padding:6px 0;}
+.faq summary{cursor:pointer; list-style:none; padding:22px 4px; display:flex; justify-content:space-between; align-items:center; gap:20px;
+  font-size:19px; font-weight:600; letter-spacing:-.02em;}
+.faq summary::-webkit-details-marker{display:none;}
+.faq summary .plus{width:22px; height:22px; flex:0 0 auto; position:relative; transition:.2s;}
+.faq summary .plus::before,.faq summary .plus::after{content:""; position:absolute; background:var(--ink); border-radius:2px;}
+.faq summary .plus::before{top:10px; left:2px; right:2px; height:2px;}
+.faq summary .plus::after{left:10px; top:2px; bottom:2px; width:2px; transition:.2s;}
+.faq details[open] summary .plus::after{transform:scaleY(0);}
+.faq .ans{padding:0 4px 24px; color:var(--graphite); font-size:16px; line-height:1.6; max-width:70ch;}
+
+/* ============== CLOSING CTA ============== */
+.cta-band{background:var(--lifted); text-align:center;}
+.cta-band h2{margin:0 auto; max-width:16ch; color:var(--ink);}
+.cta-band p{margin:22px auto 0; max-width:52ch; color:var(--graphite); font-size:18px;}
+.cta-band .row{margin-top:36px; display:flex; gap:14px; justify-content:center; flex-wrap:wrap;}
+
+/* ============== FOOTER (ink black) ============== */
+.footer{background:var(--ink-surface); color:var(--on-ink);}
+.footer-inner{padding:80px 32px 56px; max-width:var(--max); margin:0 auto;}
+.footer-lead{max-width:18ch; margin:0 0 56px; color:var(--on-ink);}
+.footer-top{display:grid; grid-template-columns:1.4fr repeat(3,1fr); gap:40px; padding-bottom:48px; border-bottom:1px solid var(--divider-dark);}
+@media(max-width:768px){ .footer-top{grid-template-columns:1fr 1fr;} .footer-inner{padding:56px 20px 40px;} }
+.footer .brand{color:var(--on-ink);}
+.footer .brand .mark::before{background:var(--on-ink);}
+.footer-blurb{margin-top:18px; color:var(--on-ink-mute); font-size:14px; line-height:1.6; max-width:38ch;}
+.fcol h4{margin:0 0 18px; font-size:13px; letter-spacing:.04em; text-transform:uppercase; color:var(--on-ink-mute); font-weight:700;}
+.fcol a{display:inline-flex; align-items:center; gap:6px; color:var(--on-ink-mute); font-size:14px; padding:8px 0;}
+.fcol a:hover{color:var(--on-ink);}
+.fcol a .ext{width:12px; height:12px; opacity:.7;}
+.footer-bottom{padding-top:30px; display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap;
+  color:var(--on-ink-mute); font-size:12px;}
+.footer-bottom .badge-tag{background:transparent; border-color:var(--divider-dark); color:var(--on-ink-mute);}
+
+/* ============================================================
+   ANIMATIONS — scroll reveal (.reveal -> .is-visible via JS)
+   ============================================================ */
+@media (prefers-reduced-motion: no-preference){
+  html.js .reveal{
+    opacity:0; transform:translateY(26px);
+    transition:opacity .7s cubic-bezier(.22,.61,.36,1), transform .7s cubic-bezier(.22,.61,.36,1);
+    will-change:opacity, transform;
+  }
+  html.js .reveal.r-right{transform:translateX(40px) scale(.99);}
+  html.js .reveal.r-left{transform:translateX(-32px);}
+  html.js .reveal.r-scale{transform:translateY(20px) scale(.96);}
+  html.js .reveal.is-visible{opacity:1; transform:none;}
+
+  /* nav: slide down on load */
+  html.js .nav{animation:navDrop .6s cubic-bezier(.22,.61,.36,1) both;}
+  @keyframes navDrop{from{opacity:0; transform:translateY(-120%);} to{opacity:1; transform:none;}}
+
+  /* hero medallion: slow living orbit drift */
+  html.js .orbit{animation:spin 60s linear infinite;}
+  html.js .orbit.orbit-2{animation:spin 90s linear infinite reverse;}
+  @keyframes spin{to{transform:rotate(342deg);}}
+  html.js .medallion{animation:float 7s ease-in-out infinite alternate;}
+  @keyframes float{from{transform:translateY(-6px);} to{transform:translateY(6px);}}
+}
+
+@media (prefers-reduced-motion: reduce){
+  *{animation:none !important; scroll-behavior:auto !important;}
+}
+
+/* ============ HOVER MICRO-INTERACTIONS ============ */
+.btn{transition:background .18s ease, color .18s ease, transform .2s cubic-bezier(.22,.61,.36,1), box-shadow .2s ease, border-color .18s ease;}
+.btn:hover{transform:translateY(-2px);}
+.btn:active{transform:translateY(0);}
+.btn-primary:hover{box-shadow:0 12px 28px rgba(20,20,19,.24);}
+
+/* nav links: growing underline */
+.nav-links a::after{content:""; position:absolute; left:0; right:0; bottom:-6px; height:2px;
+  background:var(--ink); transform:scaleX(0); transform-origin:left; transition:transform .25s ease;}
+.nav-links a:hover::after{transform:scaleX(1);}
+
+/* feature cards: lift + soft halo + icon kick */
+.fcard{transition:transform .28s cubic-bezier(.22,.61,.36,1), box-shadow .28s ease, border-color .28s ease;}
+.fcard:hover{transform:translateY(-6px); border-color:var(--ink); box-shadow:var(--shadow-pop);}
+.fcard .ico{transition:transform .28s cubic-bezier(.34,1.56,.64,1), background .28s ease, color .28s ease, border-color .28s ease;}
+.fcard:hover .ico{transform:translateY(-2px); background:var(--ink); color:var(--on-ink); border-color:var(--ink);}
+
+/* steps: number pops on row hover */
+.step .n{transition:transform .3s cubic-bezier(.34,1.56,.64,1);}
+.step:hover .n{transform:scale(1.08) rotate(-4deg);}
+
+/* metrics + pills */
+.metric{transition:background .25s ease;}
+.metric:hover{background:var(--card);}
+.footer .fcol a{transition:color .18s ease, transform .18s ease;}
+.footer .fcol a:hover{transform:translateX(3px);}
+
+/* code well caret + tabs */
+.code-tab{transition:color .2s ease, box-shadow .2s ease;}
+.code-body pre::after{content:"▋"; display:inline; color:var(--signal-light); animation:caret 1.05s steps(1) infinite; margin-left:2px;}
+@keyframes caret{0%,50%{opacity:1;} 50.01%,100%{opacity:0;}}
+
+/* faq: answer fades/slides in on open */
+.faq summary{transition:color .2s ease;}
+.faq details[open] summary{color:var(--ink);}
+.faq details[open] .ans{animation:ansIn .35s ease both;}
+@keyframes ansIn{from{opacity:0; transform:translateY(-6px);} to{opacity:1; transform:none;}}
+
+/* status dot pulse */
+.badge-status .dot{position:relative;}
+.badge-status .dot::after{content:""; position:absolute; inset:-4px; border-radius:var(--r-full);
+  border:1.5px solid var(--signal-light); opacity:0; animation:pulseRing 2.2s ease-out infinite;}
+@keyframes pulseRing{0%{transform:scale(.7); opacity:.55;} 70%,100%{transform:scale(1.9); opacity:0;}}
+</style>
+<script>document.documentElement.classList.add('js');</script>
+</head>
+<body>
+
+<!-- ============ NAV ============ -->
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="#top"><span class="mark"></span>Handshake&nbsp;Auto-Apply</a>
+    <nav class="nav-links">
+      <a href="#how">How it works</a>
+      <a href="#features">Features</a>
+      <a href="#privacy">Privacy</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <div class="nav-right">
+      <a class="icon-btn" href="#" aria-label="GitHub repository" title="GitHub">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.49 0-.24-.01-.87-.01-1.71-2.78.62-3.37-1.21-3.37-1.21-.45-1.18-1.11-1.49-1.11-1.49-.91-.64.07-.62.07-.62 1 .07 1.53 1.06 1.53 1.06.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.11.63-1.37-2.22-.26-4.55-1.14-4.55-5.07 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05a9.4 9.4 0 0 1 5 0c1.91-1.33 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.94-2.34 4.81-4.57 5.06.36.32.68.94.68 1.91 0 1.38-.01 2.49-.01 2.83 0 .27.18.6.69.49A10.02 10.02 0 0 0 22 12.25C22 6.58 17.52 2 12 2Z"/></svg>
+      </a>
+      <a class="signin" href="#">Docs</a>
+      <a class="btn btn-primary" href="#get">Add to Chrome</a>
+    </div>
+  </div>
+</header>
+
+<a id="top"></a>
+
+<!-- ============ HERO ============ -->
+<section class="hero">
+  <div class="wrap hero-inner">
+    <div class="hero-copy">
+      <span class="eyebrow">Chrome Extension · Manifest V3 · Local-first</span>
+      <h1 class="display-xxl">Apply to every one-click job. Automatically.</h1>
+      <p class="lead">A Chrome extension that auto-applies to native Handshake one-click jobs straight from your own logged-in session — then logs every result on your machine. You click <strong>Start</strong>; it does the clicking.</p>
+      <div class="hero-cta">
+        <a class="btn btn-primary btn-big" href="#get">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Zm0 4.8a5.2 5.2 0 0 1 4.5 2.6h-7.9l-2-3.4A5.18 5.18 0 0 1 12 6.8Zm-7 5.2a5.2 5.2 0 0 1 1.6-3.76l2.94 5.1A5.2 5.2 0 0 0 14 16.9l-1.4 2.43A5.2 5.2 0 0 1 5 12Zm9.4 3.6 1.95-3.38a5.2 5.2 0 0 1-3.7 6.5Z"/></svg>
+          Add to Chrome — Free
+        </a>
+        <a class="btn btn-outline btn-big" href="#how">See how it works</a>
+      </div>
+      <div class="hero-note">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.4 8.4 8 10 4.6-1.6 8-5 8-10V5Z"/><path d="m9 12 2 2 4-4"/></svg>
+        Never stores your Handshake password. Runs entirely on <span class="mono">127.0.0.1</span>.
+      </div>
+    </div>
+
+    <div class="hero-visual">
+      <span class="orbit"></span>
+      <span class="orbit orbit-2"></span>
+      <div class="medallion">
+        <span class="medallion-glow"></span>
+        <div class="medallion-mark">
+          <span class="glyph">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11 3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          </span>
+          <span class="cap">One-click apply</span>
+          <span class="sub">native Handshake jobs only</span>
+        </div>
+        <a class="satellite" href="#get" aria-label="Get started">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ METRICS STRIP ============ -->
+<section class="strip">
+  <div class="wrap">
+    <div class="metrics">
+      <div class="metric"><div class="num">1-click</div><div class="lbl">Native Handshake jobs only</div></div>
+      <div class="metric"><div class="num">0</div><div class="lbl">Credentials ever stored</div></div>
+      <div class="metric"><div class="num">100%</div><div class="lbl">Local SQLite audit trail</div></div>
+      <div class="metric"><div class="num">No&nbsp;dupes</div><div class="lbl">De-duplicated across runs</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ HOW IT WORKS ============ -->
+<section class="section" id="how">
+  <div class="wrap">
+    <div class="head">
+      <span class="eyebrow">How it works</span>
+      <h2 class="display-xl">Three steps, then it runs itself.</h2>
+      <p>No credentials, no scraping your account. The extension drives the Handshake pages you’re already logged into, and a tiny local backend keeps the record.</p>
+    </div>
+
+    <div class="split">
+      <div class="steps">
+        <div class="step">
+          <div class="n">1</div>
+          <div>
+            <h3>Install the extension &amp; start the backend</h3>
+            <p>Add the Chrome extension and run the local companion API with <code>./run.sh</code>. It listens on <code>127.0.0.1:8765</code> and stores everything in SQLite.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="n">2</div>
+          <div>
+            <h3>Open Handshake &amp; click Start</h3>
+            <p>Navigate to any supported Handshake jobs page while logged in, open the popup, and press <code>Start Auto-Apply</code>. Nothing runs on its own.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="n">3</div>
+          <div>
+            <h3>Watch eligible jobs get applied</h3>
+            <p>It applies to native one-click jobs, skips anything risky with a machine-readable reason, and shows live progress in the popup.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="code-well" aria-label="Backend run output">
+        <div class="code-tabs">
+          <span class="code-tab active">run.sh</span>
+          <span class="code-tab">popup</span>
+          <span class="code-tab">sqlite</span>
+        </div>
+        <div class="code-body">
+<pre><span class="c-mute">$</span> ./run.sh
+<span class="c-grn">✓</span> Spring Boot companion up on <span class="c-key">127.0.0.1:8765</span>
+<span class="c-grn">✓</span> SQLite ready  <span class="c-mute">·  data/handshake.db</span>
+
+<span class="c-mute"># popup → Start Auto-Apply</span>
+<span class="c-org">→</span> scanning job cards .............. <span class="c-grn">14 found</span>
+<span class="c-org">→</span> apply  <span class="c-key">swe-intern-acme</span> ........ <span class="c-grn">APPLIED</span>
+<span class="c-org">→</span> apply  <span class="c-key">data-analyst-globex</span> .... <span class="c-grn">APPLIED</span>
+<span class="c-org">→</span> skip   <span class="c-key">pm-intern-initech</span> ...... <span class="c-mute">APPLY_EXTERNALLY</span>
+<span class="c-org">→</span> skip   <span class="c-key">ux-soylent</span> ........... <span class="c-mute">ALREADY_APPLIED</span>
+
+<span class="c-grn">done</span> · 9 applied · 5 skipped · 0 errors</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FEATURES ============ -->
+<section class="section feature-band" id="features">
+  <div class="wrap">
+    <div class="head">
+      <span class="eyebrow">Built deliberately small</span>
+      <h2 class="display-xl">Does one thing, refuses to guess.</h2>
+      <p>The MVP applies only where it’s safe to. Anything that needs your judgment is skipped and recorded — never auto-answered.</p>
+    </div>
+
+    <div class="fgrid">
+      <div class="fcard">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11 3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div>
+        <h3>Native one-click only</h3>
+        <p>Applies exclusively to jobs that expose Handshake’s own Apply action. No external sites, no redirects.</p>
+      </div>
+      <div class="fcard">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+        <h3>Your session, your password</h3>
+        <p>Works from your existing logged-in browser session. Handshake credentials are never entered, sent, or stored.</p>
+      </div>
+      <div class="fcard">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9"/><path d="M16 3h5v5"/><path d="M21 3l-9 9"/></svg></div>
+        <h3>Duplicate-proof</h3>
+        <p>Every successful application is keyed by Handshake job ID, so re-runs never apply to the same job twice.</p>
+      </div>
+      <div class="fcard">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg></div>
+        <h3>Skips the risky stuff</h3>
+        <p>Multi-step forms, screening questions, file changes, off-Handshake flows — all skipped with a clear reason code.</p>
+      </div>
+      <div class="fcard">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20v-6"/><path d="M6 20V10"/><path d="M18 20V4"/></svg></div>
+        <h3>Live progress</h3>
+        <p>The popup reflects real-time run state — scanning, applying, skipping — and shows your recent run history.</p>
+      </div>
+      <div class="fcard">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg></div>
+        <h3>Local audit trail</h3>
+        <p>Settings, run history, and job outcomes live in SQLite on your machine — the single source of truth, never the cloud.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ DARK CODE-STORY BAND (skip reasons) ============ -->
+<section class="band dark-band" id="privacy">
+  <div class="wrap">
+    <div class="split">
+      <div>
+        <span class="eyebrow">Every result, logged locally</span>
+        <h2 class="display-xl">If it’s skipped, you know exactly why.</h2>
+        <p class="lead">Nothing is silently passed over. Each skipped job is written to your local database with a machine-readable reason, so a run is a record you can trust.</p>
+        <ul class="check">
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m20 6-11 11-5-5"/></svg> Data stays on <span class="mono">&nbsp;127.0.0.1&nbsp;</span> — no remote hosting, no shared database.</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m20 6-11 11-5-5"/></svg> Starts only when you press Start — never auto-runs on page load.</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m20 6-11 11-5-5"/></svg> No AI answers, no ranking, no form-filling guesswork in the apply loop.</li>
+        </ul>
+      </div>
+
+      <div class="code-well" aria-label="Skip reason codes">
+        <div class="code-tabs">
+          <span class="code-tab active">skip_reasons</span>
+        </div>
+        <div class="code-body">
+          <div class="reasons">
+            <div class="reason-row"><span class="mono">ALREADY_APPLIED</span><p>Handshake already shows the job as applied.</p></div>
+            <div class="reason-row"><span class="mono">APPLY_EXTERNALLY</span><p>The flow leaves Handshake or uses an external site.</p></div>
+            <div class="reason-row"><span class="mono">MULTI_STEP_FORM</span><p>Opens a multi-step form requiring input.</p></div>
+            <div class="reason-row"><span class="mono">SCREENING_QUESTIONS</span><p>Presents screening questions to answer.</p></div>
+            <div class="reason-row"><span class="mono">BUTTON_DISABLED</span><p>The apply action isn’t available or enabled.</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FAQ ============ -->
+<section class="section" id="faq">
+  <div class="wrap">
+    <div class="head center">
+      <span class="eyebrow">Questions</span>
+      <h2 class="display-xl">Good to know.</h2>
+    </div>
+    <div class="faq">
+      <details open>
+        <summary>Does this store my Handshake password? <span class="plus"></span></summary>
+        <div class="ans">No. The extension operates inside your already-logged-in browser session. It never asks for, transmits, or stores your Handshake credentials anywhere.</div>
+      </details>
+      <details>
+        <summary>What jobs will it actually apply to? <span class="plus"></span></summary>
+        <div class="ans">Only native Handshake one-click jobs that are eligible: you’re logged in, the page is supported, the Apply button is enabled, the job isn’t already applied, and it doesn’t open a form, screening questions, or an external site.</div>
+      </details>
+      <details>
+        <summary>Will it spam applications or run on its own? <span class="plus"></span></summary>
+        <div class="ans">No. A run only ever begins when you click <strong>Start Auto-Apply</strong> in the popup. It de-duplicates by Handshake job ID, so re-running won’t apply to the same job twice.</div>
+      </details>
+      <details>
+        <summary>Why is there a local backend? <span class="plus"></span></summary>
+        <div class="ans">A small Spring Boot companion API on <span class="mono">127.0.0.1:8765</span> keeps your settings, run history, and per-job outcomes in SQLite. It’s the source of truth for what’s been applied to — and it stays entirely on your machine.</div>
+      </details>
+      <details>
+        <summary>Which browsers are supported? <span class="plus"></span></summary>
+        <div class="ans">Desktop Google Chrome only for the MVP. Firefox, Safari, and Edge-specific packaging are out of scope for now.</div>
+      </details>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CLOSING CTA ============ -->
+<section class="band cta-band" id="get">
+  <div class="wrap">
+    <h2 class="display-xxl">Stop clicking Apply.</h2>
+    <p>Install the extension, start the local backend, open Handshake, and let the one-click jobs take care of themselves.</p>
+    <div class="row">
+      <a class="btn btn-primary btn-big" href="#">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Zm0 4.8a5.2 5.2 0 0 1 4.5 2.6h-7.9l-2-3.4A5.18 5.18 0 0 1 12 6.8Zm-7 5.2a5.2 5.2 0 0 1 1.6-3.76l2.94 5.1A5.2 5.2 0 0 0 14 16.9l-1.4 2.43A5.2 5.2 0 0 1 5 12Zm9.4 3.6 1.95-3.38a5.2 5.2 0 0 1-3.7 6.5Z"/></svg>
+        Add to Chrome — Free
+      </a>
+      <a class="btn btn-outline btn-big" href="#">Read the docs</a>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FOOTER ============ -->
+<footer class="footer">
+  <div class="footer-inner">
+    <h2 class="display-lg footer-lead">We’re here when you’re ready to apply.</h2>
+    <div class="footer-top">
+      <div>
+        <a class="brand" href="#top"><span class="mark"></span>Handshake&nbsp;Auto-Apply</a>
+        <p class="footer-blurb">A local-first Chrome extension that auto-applies to native Handshake one-click jobs — and keeps the receipts on your machine.</p>
+      </div>
+      <div class="fcol">
+        <h4>Product</h4>
+        <a href="#how">How it works</a>
+        <a href="#features">Features</a>
+        <a href="#privacy">Privacy</a>
+        <a href="#faq">FAQ</a>
+      </div>
+      <div class="fcol">
+        <h4>Developers</h4>
+        <a href="#">Documentation <svg class="ext" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg></a>
+        <a href="#">Backend API <svg class="ext" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg></a>
+        <a href="#">GitHub <svg class="ext" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg></a>
+        <a href="#">Changelog</a>
+      </div>
+      <div class="fcol">
+        <h4>Legal</h4>
+        <a href="#">Privacy policy</a>
+        <a href="#">Terms</a>
+        <a href="#">Responsible use</a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 Handshake Auto-Apply · Not affiliated with Handshake.</span>
+      <span class="badge-tag">Local-first · MVP</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+/* ============================================================
+   Scroll-reveal orchestration
+   ============================================================ */
+(function(){
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduce || !('IntersectionObserver' in window)) return; // content stays visible
+
+  // selector, per-item stagger (ms), optional direction class
+  var groups = [
+    ['.hero-copy > *',                               90,  ''        ],
+    ['.hero-visual',                                  0,  'r-right' ],
+    ['.metrics .metric',                             80,  'r-scale' ],
+    ['#how .head > *',                               80,  ''        ],
+    ['.steps .step',                                100,  'r-left'  ],
+    ['#how .code-well',                               0,  'r-right' ],
+    ['#features .head > *',                          80,  ''        ],
+    ['.fgrid .fcard',                                70,  'r-scale' ],
+    ['.dark-band .split > div:first-child > *',      90,  ''        ],
+    ['.dark-band .code-well',                         0,  'r-right' ],
+    ['#faq .head > *',                               80,  ''        ],
+    ['.faq details',                                 60,  ''        ],
+    ['.cta-band .wrap > *',                          90,  ''        ],
+    ['.footer-top > *',                              80,  ''        ]
+  ];
+
+  var CAP = 6; // cap stagger so big grids don't trail too long
+  groups.forEach(function(g){
+    var sel = g[0], step = g[1], dir = g[2];
+    var els = document.querySelectorAll(sel);
+    els.forEach(function(el, i){
+      el.classList.add('reveal');
+      if (dir) el.classList.add(dir);
+      var idx = Math.min(i, CAP);
+      el.style.transitionDelay = (idx * step) + 'ms';
+    });
+  });
+
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if (e.isIntersecting){
+        e.target.classList.add('is-visible');
+        io.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
+
+  document.querySelectorAll('.reveal').forEach(function(el){ io.observe(el); });
+})();
+</script>
+</body>
+</html>

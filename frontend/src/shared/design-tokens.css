@@ -1,133 +1,146 @@
 /* =============================================================
-   Handshake Auto-Apply — Color & Type Foundations  (v2)
-   Clean & modern: crisp white surfaces over warm cream paper,
-   all sans-serif type, a switchable accent (default cobalt).
-   No green. Originated from SuperNova-W/HandshakeJobApplier,
-   then re-skinned per design direction.
+   Handshake Auto-Apply — Color & Type Foundations  (Mastercard)
+   Design language from DESIGN.md (getdesign "mastercard"):
+   warm putty-cream canvas, ink-black pill CTAs, Sofia Sans type
+   (MarkForMC substitute), oversized radii (20 / 24 / 999), soft
+   wide low-opacity shadows, eyebrow labels with a signal-orange
+   dot. Signal Orange is a decorative / consent accent only — it
+   is never the primary action color.
+   Variable NAMES are preserved from the previous system so the
+   popup + options stylesheets re-skin automatically.
    ============================================================= */
 
 /* --- Fonts ---------------------------------------------------
-   One clean grotesk for everything (display, body, eyebrow,
-   metrics). Hanken Grotesk = humanist, modern, friendly, NOT a
-   default trope (Inter/Roboto avoided). Numerals use tabular
-   figures for the metric counters. Swap freely. */
-@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap');
+   Sofia Sans is Mastercard's own declared fallback for the
+   proprietary MarkForMC — the closest open-source match. It is a
+   variable font, so the load-bearing 450 body weight renders. */
+@import url('https://fonts.googleapis.com/css2?family=Sofia+Sans:ital,wght@0,300..700;1,400..500&display=swap');
 
 :root {
-  /* ---------- Neutrals: warm cream paper kept, white surfaces ---------- */
-  --paper-0: #fffdf9;   /* warm white — page top */
-  --paper-1: #f7f2e8;   /* cream — page base */
-  --paper-2: #efe9db;   /* sunk well fill */
-  --paper-3: #e7e0cf;   /* deeper well / idle chip */
-  --paper-4: #ddd4be;   /* track / stepper edge */
-  --surface:  #ffffff;  /* crisp card face */
-  --surface-2:#fbfaf6;  /* very-subtly-warm secondary surface */
+  /* ---------- Neutrals: warm putty cream, white cards ---------- */
+  --paper-0: #fcfbfa;   /* lifted cream — page top */
+  --paper-1: #f3f0ee;   /* canvas cream — page base (never white) */
+  --paper-2: #ece7e1;   /* sunk well fill */
+  --paper-3: #e8e2da;   /* deeper well / ghost-watermark cream */
+  --paper-4: #d1cdc7;   /* dust taupe — track / disabled edge */
+  --surface:  #ffffff;  /* crisp white card face */
+  --surface-2:#fcfbfa;  /* lifted cream secondary surface */
 
-  /* ---------- Ink / text ---------- */
-  --ink-1: #1b1a16;     /* near-black, warm */
-  --ink-2: #56524a;     /* secondary */
-  --ink-3: #837e71;     /* muted / labels */
-  --ink-4: #a39d8d;     /* faint */
-  --ink-on-accent: #ffffff;
+  /* ---------- Ink / text (warm near-black) ---------- */
+  --ink-1: #141413;     /* primary ink — text, CTAs, footer */
+  --ink-2: #565656;     /* graphite — secondary */
+  --ink-3: #696969;     /* slate — muted / labels */
+  --ink-4: #9a968f;     /* dust — faint */
+  --ink-on-accent: #f3f0ee; /* cream text on ink (not pure white) */
 
-  /* ---------- ACCENT (switchable) — default Cobalt ----------
-     Override --accent / --accent-strong / --accent-soft / --accent-ink
-     to retheme the whole system in one place. */
-  --accent:        #2f5fe0;   /* primary action */
-  --accent-strong: #2549bf;   /* hover / pressed */
-  --accent-soft:   #e7ecfd;   /* tinted fill (chips, ghost) */
-  --accent-ink:    #1d3a93;   /* text on soft fill */
+  /* ---------- ACCENT = the primary action color ----------
+     In Mastercard the primary CTA is an INK-BLACK pill, so the
+     system "accent" maps to ink. Signal Orange lives separately
+     below and must stay decorative / consent-only. */
+  --accent:        #141413;   /* primary action — ink pill */
+  --accent-strong: #000000;   /* hover / pressed */
+  --accent-soft:   #ece7e1;   /* bone tint (chips, ghost fills) */
+  --accent-ink:    #141413;   /* text on soft fill */
 
-  /* curated alternates (used by the UI-kit color Tweak) */
-  --opt-cobalt:  #2f5fe0; --opt-cobalt-strong: #2549bf; --opt-cobalt-soft: #e7ecfd; --opt-cobalt-ink: #1d3a93;
-  --opt-indigo:  #5b46e5; --opt-indigo-strong: #4a36cf; --opt-indigo-soft: #ece9fd; --opt-indigo-ink: #3a2aa6;
-  --opt-amber:   #c9761b; --opt-amber-strong:  #ad6212; --opt-amber-soft:  #fbeed8; --opt-amber-ink:  #8a4f10;
-  --opt-crimson: #d2384a; --opt-crimson-strong:#b62a3b; --opt-crimson-soft:#fce2e4; --opt-crimson-ink:#9c2433;
+  /* curated alternates (kept for the UI-kit color Tweak hook) */
+  --opt-ink:     #141413; --opt-ink-strong:    #000000; --opt-ink-soft:    #ece7e1; --opt-ink-ink:    #141413;
+  --opt-signal:  #cf4500; --opt-signal-strong: #9a3a0a; --opt-signal-soft: #fbead9; --opt-signal-ink: #9a3a0a;
+  --opt-clay:    #9a3a0a; --opt-clay-strong:   #7d2f08; --opt-clay-soft:   #f4e6dc; --opt-clay-ink:   #7d2f08;
+  --opt-link:    #3860be; --opt-link-strong:   #2c4d99; --opt-link-soft:   #e6ecf8; --opt-link-ink:   #2c4d99;
+
+  /* ---------- Signal Orange — decorative / consent only ---------- */
+  --signal:        #cf4500;   /* burnt rust — consent / legal actions */
+  --signal-strong: #9a3a0a;   /* clay brown — pressed / link-style */
+  --signal-light:  #f37338;   /* carroty — orbital arcs, eyebrow dot, active cues */
+  --signal-soft:   #fbead9;   /* tinted fill */
+  --link:          #3860be;   /* dusty blue — inline links */
 
   /* ---------- Semantic status ----------
-     Active / running / online borrow the ACCENT (no green).
-     Stop / error use terracotta-red. Idle is neutral cream. */
-  --go-bg:   var(--accent-soft);
-  --go-ink:  var(--accent-ink);
-  --stop-bg: #fbe2dd;
-  --stop-ink:#b23a2b;
+     No green (Mastercard rule). "Go" states read as ink on a bone
+     pill; stop/error use Signal Orange; warn uses clay. */
+  --go-bg:   var(--paper-3);
+  --go-ink:  var(--ink-1);
+  --stop-bg: #f7e2d6;
+  --stop-ink:#cf4500;
   --idle-bg: var(--paper-3);
-  --idle-ink:#6a6457;
-  --warn-bg: #fbeed8;
-  --warn-ink:#8a4f10;
+  --idle-ink:#696969;
+  --warn-bg: #fbead9;
+  --warn-ink:#9a3a0a;
 
   /* ---------- Borders & lines ---------- */
-  --border-hair: rgba(27, 26, 22, 0.10);
-  --border-soft: rgba(27, 26, 22, 0.06);
-  --border-ink:  rgba(27, 26, 22, 0.16);
+  --border-hair: rgba(20, 20, 19, 0.12);
+  --border-soft: rgba(20, 20, 19, 0.07);
+  --border-ink:  rgba(20, 20, 19, 0.18);
 
-  /* ---------- Radii (crisp, modern) ---------- */
+  /* ---------- Radii — Mastercard scale (small / 20-24 / pill) ---------- */
   --r-pill: 999px;
-  --r-card: 16px;
-  --r-well: 12px;
-  --r-btn:  10px;
+  --r-card: 24px;   /* compact stand-in for the 40px stadium hero */
+  --r-well: 16px;
+  --r-btn:  20px;   /* the signature button radius */
   --r-chip: 999px;
 
-  /* ---------- Shadows (subtle layered, clean) ---------- */
-  --shadow-card: 0 1px 2px rgba(27,26,22,0.05), 0 6px 20px rgba(27,26,22,0.06);
-  --shadow-pop:  0 1px 3px rgba(27,26,22,0.08), 0 18px 44px rgba(27,26,22,0.14);
-  --shadow-btn:  0 4px 12px color-mix(in srgb, var(--accent) 30%, transparent);
+  /* ---------- Shadows — atmospheric cushioning (wide, ≤10%) ---------- */
+  --shadow-card: 0 1px 2px rgba(20, 20, 19, 0.03), 0 18px 40px rgba(20, 20, 19, 0.06);
+  --shadow-pop:  0 1px 3px rgba(20, 20, 19, 0.05), 0 24px 48px rgba(20, 20, 19, 0.10);
+  --shadow-btn:  0 10px 24px rgba(20, 20, 19, 0.20);
 
   /* ---------- Gradients ---------- */
   --grad-page: linear-gradient(180deg, var(--paper-0) 0%, var(--paper-1) 100%);
-  --grad-accent: linear-gradient(145deg,
-      color-mix(in srgb, var(--accent) 92%, white),
-      var(--accent-strong));
+  /* "accent" gradient = ink, used by the popup/options top bar
+     (reads like the Mastercard ink footer / CTA surface) */
+  --grad-accent: linear-gradient(145deg, #2a2a28 0%, var(--ink-1) 100%);
 
-  /* ---------- Spacing scale (popup is compact) ---------- */
-  --s-1: 4px;  --s-2: 8px;  --s-3: 10px; --s-4: 12px;
-  --s-5: 14px; --s-6: 18px; --s-7: 24px; --s-8: 32px;
+  /* ---------- Spacing scale (8px base, popup is compact) ---------- */
+  --s-1: 4px;  --s-2: 8px;  --s-3: 12px; --s-4: 16px;
+  --s-5: 16px; --s-6: 24px; --s-7: 32px; --s-8: 48px;
 
-  /* ---------- Type families (all sans) ---------- */
-  --font-sans: "Hanken Grotesk", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  /* ---------- Type families (all Sofia Sans) ---------- */
+  --font-sans: "Sofia Sans", "SofiaSans", ui-sans-serif, system-ui, -apple-system, Arial, sans-serif;
   --font-display: var(--font-sans);
   --font-body: var(--font-sans);
-  --font-mono: var(--font-sans); /* legacy alias: metrics now use tabular sans */
+  --font-mono: var(--font-sans); /* legacy alias: metrics use tabular sans */
 
   /* ---------- Type roles ---------- */
-  /* Eyebrow — sans, uppercase, tracked */
+  /* Eyebrow — 14px / 700 / +4% tracking, uppercase, with a dot */
   --eyebrow-family: var(--font-sans);
-  --eyebrow-size: 11px;
-  --eyebrow-tracking: 0.16em;
+  --eyebrow-size: 12px;
+  --eyebrow-tracking: 0.04em;
   --eyebrow-weight: 700;
 
+  /* Headlines — MarkForMC behaviour: weight 500, tight -2% tracking */
   --h1-family: var(--font-display);
-  --h1-size: 27px;
+  --h1-size: 28px;
   --h1-line: 1.04;
-  --h1-weight: 800;
+  --h1-weight: 600;
   --h1-tracking: -0.02em;
 
   --h2-family: var(--font-display);
-  --h2-size: 19px;
-  --h2-line: 1.12;
-  --h2-weight: 700;
+  --h2-size: 20px;
+  --h2-line: 1.15;
+  --h2-weight: 600;
 
   --label-family: var(--font-body);
   --label-size: 14px;
   --label-weight: 700;
 
+  /* Body — the load-bearing 450 weight */
   --body-family: var(--font-body);
-  --body-size: 14px;
+  --body-size: 15px;
   --body-line: 1.45;
-  --body-weight: 400;
+  --body-weight: 450;
 
   --small-size: 13px;
   --tiny-size: 12px;
 
   /* Metric numerals — bold tabular sans */
   --metric-family: var(--font-sans);
-  --metric-size: 24px;
-  --metric-weight: 800;
+  --metric-size: 26px;
+  --metric-weight: 700;
 
   /* =====================================================
-     Backwards-compat aliases (old green token names →
-     new neutral/accent values) so earlier files keep
-     rendering. Prefer the names above for new work.
+     Backwards-compat aliases (old token names → new
+     Mastercard values) so any older file keeps rendering.
+     Prefer the names above for new work.
      ===================================================== */
   --parchment-1: var(--paper-0); --parchment-2: var(--paper-1);
   --parchment-3: var(--paper-3); --parchment-4: var(--paper-4);
@@ -139,8 +152,10 @@
   --wheat-300: var(--paper-3); --wheat-well: var(--paper-2);
   --terra-100: var(--stop-bg); --terra-ink: var(--stop-ink);
   --fg-1: var(--ink-1); --fg-2: var(--ink-2); --fg-3: var(--ink-3); --fg-4: var(--ink-3);
-  --fg-on-dark: var(--ink-on-accent); --fg-on-dark-soft: rgba(255,255,255,0.88);
+  --fg-on-dark: var(--ink-on-accent); --fg-on-dark-soft: rgba(243, 240, 238, 0.82);
   --grad-hero: var(--grad-accent);
+  /* legacy accent aliases → cobalt names now resolve to ink */
+  --accent-strong-cobalt: var(--accent-strong);
 }
 
 /* =============================================================
@@ -149,6 +164,7 @@
 body {
   font-family: var(--font-body);
   font-size: var(--body-size);
+  font-weight: var(--body-weight);
   line-height: var(--body-line);
   color: var(--ink-1);
   background: var(--grad-page);
@@ -168,16 +184,29 @@ h2 {
   font-size: var(--h2-size);
   line-height: var(--h2-line);
   font-weight: var(--h2-weight);
+  letter-spacing: -0.02em;
   margin: 0;
 }
 p { margin: 0; color: var(--ink-2); }
 
+/* Eyebrow — Mastercard signature: uppercase, tracked, accent dot */
 .eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   font-family: var(--eyebrow-family);
   font-size: var(--eyebrow-size);
   letter-spacing: var(--eyebrow-tracking);
   text-transform: uppercase;
   font-weight: var(--eyebrow-weight);
   color: var(--ink-3);
+}
+.eyebrow::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--signal-light);
+  flex-shrink: 0;
 }
 .tnum { font-variant-numeric: tabular-nums; }

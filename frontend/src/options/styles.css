@@ -152,7 +152,7 @@ body {
 }
 .btn-primary {
   background: var(--accent);
-  color: #fff;
+  color: var(--ink-on-accent);
 }
 .btn-primary:hover:not(:disabled) {
   background: var(--accent-strong);
@@ -267,7 +267,7 @@ body {
 }
 .seg-btn.active {
   background: var(--accent);
-  color: #fff;
+  color: var(--ink-on-accent);
 }
 .toggle-row {
   display: flex;

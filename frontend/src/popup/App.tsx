@@ -4,23 +4,16 @@ import {
   Activity,
   ArrowRight,
   ChevronsRight,
-  Copy,
-  FileText,
   FolderOpen,
   Globe,
   History,
   Play,
   RefreshCw,
-  Save,
-  Send,
-  Server,
   Settings as SettingsIcon,
   SlidersHorizontal,
-  Sparkles,
   Square
 } from "lucide-react";
-import { getResume, saveResume } from "../shared/backendApi";
-import { BACKEND_BASE_URL, createInitialRuntimeState } from "../shared/constants";
+import { createInitialRuntimeState } from "../shared/constants";
 import type {
   ExtensionMessage,
   ExtensionResponse,
@@ -95,18 +88,9 @@ function App() {
   const [pageContext, setPageContext] = useState<PageContext>(initialPageContext);
   const [uiMessage, setUiMessage] = useState("Ready. Refresh backend status before starting a run.");
 
-  // Resume + cover-letter (AI) state
-  const [resumeText, setResumeText] = useState("");
-  const [resumeStatus, setResumeStatus] = useState("Loading resume…");
-  const [coverLetter, setCoverLetter] = useState("");
-  const [coverLetterStatus, setCoverLetterStatus] = useState("");
-  const [generating, setGenerating] = useState(false);
-  const [attaching, setAttaching] = useState(false);
-
   useEffect(() => {
     void refreshRuntimeState({ refreshBackend: true });
     void refreshPageContext();
-    void loadResume();
   }, []);
 
   // Poll for live counter updates while a run is in progress
@@ -147,82 +131,6 @@ function App() {
       setPageContext(nextContext);
     } catch {
       setUiMessage("Could not inspect the active tab yet.");
-    }
-  }
-
-  async function loadResume() {
-    try {
-      const resume = await getResume();
-      setResumeText(resume.resumeText);
-      setResumeStatus(resume.hasResume ? "Resume on file." : "No resume yet — paste it below to enable cover letters.");
-    } catch {
-      setResumeStatus("Couldn't load resume (is the backend running?).");
-    }
-  }
-
-  async function handleSaveResume() {
-    setResumeStatus("Saving…");
-    try {
-      const saved = await saveResume(resumeText);
-      setResumeText(saved.resumeText);
-      setResumeStatus(saved.hasResume ? "Resume saved." : "Resume cleared.");
-    } catch (error) {
-      setResumeStatus(error instanceof Error ? error.message : "Failed to save resume.");
-    }
-  }
-
-  async function handleGenerateCoverLetter() {
-    setGenerating(true);
-    setCoverLetterStatus("Reading the job and generating… this can take a few seconds.");
-    setCoverLetter("");
-    try {
-      const response = await sendExtensionMessage({ type: "runtime/generate-cover-letter" });
-      if (!response) {
-        setCoverLetterStatus("Chrome runtime unavailable. Use this inside the extension.");
-        return;
-      }
-      if (!response.ok) {
-        setCoverLetterStatus(response.error);
-        return;
-      }
-      if (!("coverLetter" in response)) return;
-      setCoverLetter(response.coverLetter.coverLetter);
-      setCoverLetterStatus(`Draft ready (${response.coverLetter.model}). Review and edit before using.`);
-    } catch (error) {
-      setCoverLetterStatus(error instanceof Error ? error.message : "Generation failed.");
-    } finally {
-      setGenerating(false);
-    }
-  }
-
-  async function handleCopyCoverLetter() {
-    try {
-      await navigator.clipboard.writeText(coverLetter);
-      setCoverLetterStatus("Copied to clipboard.");
-    } catch {
-      setCoverLetterStatus("Couldn't copy — select the text and copy manually.");
-    }
-  }
-
-  async function handleAttachAndSubmit() {
-    setAttaching(true);
-    setCoverLetterStatus("Rendering PDF and attaching to the application…");
-    try {
-      const response = await sendExtensionMessage({ type: "runtime/attach-cover-letter", coverLetter });
-      if (!response) {
-        setCoverLetterStatus("Chrome runtime unavailable. Use this inside the extension.");
-        return;
-      }
-      if (!response.ok) {
-        setCoverLetterStatus(response.error);
-        return;
-      }
-      if (!("attach" in response)) return;
-      setCoverLetterStatus(response.attach.message);
-    } catch (error) {
-      setCoverLetterStatus(error instanceof Error ? error.message : "Attach failed.");
-    } finally {
-      setAttaching(false);
     }
   }
 
@@ -278,43 +186,55 @@ function App() {
 
   return (
     <main className="app-shell">
-      <section className="hero-panel">
-        <div className="hero-top">
-          <div className="hero-mark" aria-hidden="true">
-            <ChevronsRight size={20} strokeWidth={2.25} />
+      <header className="topbar">
+        <div className="topbar-brand">
+          <div className="topbar-mark" aria-hidden="true">
+            <ChevronsRight size={18} strokeWidth={2.5} />
           </div>
-          <div className="hero-heading">
-            <p className="eyebrow">Chrome Extension</p>
+          <div className="topbar-heading">
+            <span className="eyebrow">Chrome Extension</span>
             <h1>Handshake Auto-Apply</h1>
           </div>
         </div>
-        <p className="hero-sub">
-          Start, monitor, and stop local Handshake apply runs from the active browser tab.
-        </p>
-      </section>
+        <div className="topbar-actions">
+          <StatusBadge tone={runtimeState.backendHealth}>
+            {runtimeState.backendHealth === "online" ? "Connected" : formatStatusLabel(runtimeState.backendHealth)}
+          </StatusBadge>
+          <button
+            className="icon-button"
+            type="button"
+            title="Documents & settings"
+            aria-label="Open documents and settings"
+            onClick={() => globalThis.chrome?.runtime?.openOptionsPage?.()}
+          >
+            <SettingsIcon size={18} aria-hidden="true" />
+          </button>
+        </div>
+      </header>
 
-      <section className="panel-grid">
-        <article className="panel">
+      <div className="scroll-body">
+        <section className="panel controls-panel">
           <header className="panel-header">
             <span className="panel-title-ic">
-              <Server size={15} aria-hidden="true" /> Companion API
+              <SlidersHorizontal size={15} aria-hidden="true" /> Controls
             </span>
-            <StatusBadge tone={runtimeState.backendHealth}>{formatStatusLabel(runtimeState.backendHealth)}</StatusBadge>
+            <small>Manual start only</small>
           </header>
-          <p className="panel-copy">{BACKEND_BASE_URL}</p>
-          <dl className="compact-list">
-            <div>
-              <dt>Version</dt>
-              <dd>{runtimeState.backendVersion ?? "Unknown"}</dd>
-            </div>
-            <div>
-              <dt>Database</dt>
-              <dd>{runtimeState.backendDatabase ?? "Unknown"}</dd>
-            </div>
-          </dl>
-        </article>
+          <div className="button-row">
+            <button className="button button-primary" type="button" onClick={() => void handleStart()} disabled={startDisabled}>
+              <Play size={16} aria-hidden="true" /> Start
+            </button>
+            <button className="button button-secondary" type="button" onClick={() => void handleStop()} disabled={stopDisabled}>
+              <Square size={16} aria-hidden="true" /> Stop
+            </button>
+            <button className="button button-ghost" type="button" onClick={() => void refreshRuntimeState({ refreshBackend: true })}>
+              <RefreshCw size={16} aria-hidden="true" /> Refresh
+            </button>
+          </div>
+          <p className="message-box">{uiMessage}</p>
+        </section>
 
-        <article className="panel">
+        <section className="panel">
           <header className="panel-header">
             <span className="panel-title-ic">
               <Activity size={15} aria-hidden="true" /> Run State
@@ -337,119 +257,7 @@ function App() {
           </dl>
           <p className="panel-note">Started: {formatStartedAt(runtimeState.startedAt)}</p>
           {runtimeState.runId ? <p className="panel-note">Run: {runtimeState.runId}</p> : null}
-        </article>
-
-        <article className="panel panel-wide">
-          <header className="panel-header">
-            <span className="panel-title-ic">
-              <Globe size={15} aria-hidden="true" /> Active Page
-            </span>
-            <StatusBadge tone={pageContext.support}>{formatStatusLabel(pageContext.support)}</StatusBadge>
-          </header>
-          <p className="url-preview">{pageContext.url ?? "No active tab detected"}</p>
-          <div className="button-row">
-            <button className="button button-secondary" type="button" onClick={() => void refreshPageContext()}>
-              <RefreshCw size={16} aria-hidden="true" /> Refresh Page
-            </button>
-          </div>
-        </article>
-      </section>
-
-      <section className="panel controls-panel">
-        <header className="panel-header">
-          <span className="panel-title-ic">
-            <SlidersHorizontal size={15} aria-hidden="true" /> Controls
-          </span>
-          <small>Manual start only</small>
-        </header>
-        <div className="button-row">
-          <button className="button button-primary" type="button" onClick={() => void handleStart()} disabled={startDisabled}>
-            <Play size={16} aria-hidden="true" /> Start
-          </button>
-          <button className="button button-secondary" type="button" onClick={() => void handleStop()} disabled={stopDisabled}>
-            <Square size={16} aria-hidden="true" /> Stop
-          </button>
-          <button className="button button-ghost" type="button" onClick={() => void refreshRuntimeState({ refreshBackend: true })}>
-            <RefreshCw size={16} aria-hidden="true" /> Refresh
-          </button>
-        </div>
-        <p className="message-box">{uiMessage}</p>
-      </section>
-
-      <section className="panel">
-        <header className="panel-header">
-          <span className="panel-title-ic">
-            <Sparkles size={15} aria-hidden="true" /> Cover Letter Agent
-          </span>
-          <small>AI · review before use</small>
-        </header>
-        <p className="panel-note">
-          Generates a tailored cover letter from your resume and the job currently open in the active tab.
-          Open a job (or its apply form), then generate.
-        </p>
-        <div className="button-row">
-          <button
-            className="button button-primary"
-            type="button"
-            onClick={() => void handleGenerateCoverLetter()}
-            disabled={generating || pageContext.support !== "supported"}
-          >
-            <Sparkles size={16} aria-hidden="true" /> {generating ? "Generating…" : "Generate cover letter"}
-          </button>
-          <button
-            className="button button-secondary"
-            type="button"
-            onClick={() => void handleCopyCoverLetter()}
-            disabled={!coverLetter}
-          >
-            <Copy size={16} aria-hidden="true" /> Copy
-          </button>
-        </div>
-        <textarea
-          className="text-area"
-          rows={8}
-          placeholder="The generated cover letter will appear here for you to review and edit."
-          value={coverLetter}
-          onChange={(event) => setCoverLetter(event.target.value)}
-        />
-        <div className="button-row">
-          <button
-            className="button button-primary"
-            type="button"
-            onClick={() => void handleAttachAndSubmit()}
-            disabled={attaching || !coverLetter || pageContext.support !== "supported"}
-          >
-            <Send size={16} aria-hidden="true" /> {attaching ? "Attaching…" : "Attach to application & submit"}
-          </button>
-        </div>
-        <p className="panel-note">
-          Renders the letter above to a PDF, attaches it to the open apply form's cover-letter field,
-          and submits when the form is valid. Review the text first — submitting is final.
-        </p>
-        {coverLetterStatus ? <p className="message-box">{coverLetterStatus}</p> : null}
-      </section>
-
-      <section className="panel">
-        <header className="panel-header">
-          <span className="panel-title-ic">
-            <FileText size={15} aria-hidden="true" /> Resume
-          </span>
-          <small>Used as cover-letter context</small>
-        </header>
-        <textarea
-          className="text-area"
-          rows={6}
-          placeholder="Paste your resume text here…"
-          value={resumeText}
-          onChange={(event) => setResumeText(event.target.value)}
-        />
-        <div className="button-row">
-          <button className="button button-primary" type="button" onClick={() => void handleSaveResume()}>
-            <Save size={16} aria-hidden="true" /> Save resume
-          </button>
-        </div>
-        <p className="panel-note">{resumeStatus}</p>
-      </section>
+        </section>
 
       <section className="panel">
         <header className="panel-header">
@@ -521,7 +329,23 @@ function App() {
         ) : (
           <p className="panel-note">No run history available yet.</p>
         )}
-      </section>
+        </section>
+
+        <section className="panel">
+          <header className="panel-header">
+            <span className="panel-title-ic">
+              <Globe size={15} aria-hidden="true" /> Active Page
+            </span>
+            <StatusBadge tone={pageContext.support}>{formatStatusLabel(pageContext.support)}</StatusBadge>
+          </header>
+          <p className="url-preview">{pageContext.url ?? "No active tab detected"}</p>
+          <div className="button-row">
+            <button className="button button-secondary" type="button" onClick={() => void refreshPageContext()}>
+              <RefreshCw size={16} aria-hidden="true" /> Refresh Page
+            </button>
+          </div>
+        </section>
+      </div>
     </main>
   );
 }

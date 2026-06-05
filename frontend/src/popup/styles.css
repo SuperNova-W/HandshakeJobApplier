@@ -7,58 +7,147 @@
   box-sizing: border-box;
 }
 
+html,
 body {
   margin: 0;
 }
 
-/* ---- Shell ---- */
+/* ---- Shell: fixed-size popup, sticky top bar + scrolling body ---- */
 .app-shell {
   width: 384px;
-  padding: 14px;
-  display: grid;
-  gap: 12px;
+  height: 600px;
+  max-height: 600px;
+  display: flex;
+  flex-direction: column;
+  background: var(--grad-page);
+  overflow: hidden;
 }
 
-/* ---- Hero ---- */
-.hero-panel {
-  padding: 16px;
-  border-radius: var(--r-card);
+/* ---- Sticky top bar (compact, replaces the tall hero) ---- */
+.topbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 14px;
   background: var(--grad-accent);
   color: #fff;
-  box-shadow: 0 8px 22px color-mix(in srgb, var(--accent) 26%, transparent);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 24%, transparent);
+  z-index: 2;
 }
-.hero-panel .eyebrow {
-  color: rgba(255, 255, 255, 0.78);
-  margin: 0 0 3px;
-  line-height: 1;
-}
-.hero-top {
+.topbar-brand {
   display: flex;
   align-items: center;
   gap: 11px;
+  min-width: 0;
 }
-.hero-mark {
-  width: 36px;
-  height: 36px;
+.topbar-mark {
+  width: 34px;
+  height: 34px;
   border-radius: 10px;
   flex-shrink: 0;
   color: #fff;
-  background: rgba(255, 255, 255, 0.16);
-  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.3);
   display: flex;
   align-items: center;
   justify-content: center;
 }
-.hero-heading h1 {
-  font-size: 22px;
-  color: #fff;
-  line-height: 1.04;
+.topbar-heading {
+  min-width: 0;
 }
-.hero-sub {
-  margin-top: 10px;
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 13px;
-  line-height: 1.45;
+.topbar-heading .eyebrow {
+  display: inline-flex;
+  color: rgba(243, 240, 238, 0.82);
+  margin: 0 0 2px;
+  line-height: 1;
+  font-size: 10px;
+}
+.topbar-heading h1 {
+  font-size: 17px;
+  color: #fff;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+/* The connection badge sits on the accent bar — give it a glassy look. */
+.topbar .status-badge {
+  flex-shrink: 0;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  backdrop-filter: blur(2px);
+}
+/* Glassy gear button → opens the documents/options page. */
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  padding: 0;
+  border-radius: 9px;
+  cursor: pointer;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  backdrop-filter: blur(2px);
+  transition: background 140ms ease, transform 140ms ease;
+}
+.icon-button:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: translateY(-1px);
+}
+.icon-button:active {
+  transform: translateY(0);
+}
+.icon-button:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.7);
+  outline-offset: 2px;
+}
+
+/* ---- Scrolling body ---- */
+.scroll-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  scrollbar-gutter: stable;
+  /* Firefox */
+  scrollbar-width: thin;
+  scrollbar-color: var(--paper-4) transparent;
+}
+.scroll-body::-webkit-scrollbar {
+  width: 11px;
+}
+.scroll-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scroll-body::-webkit-scrollbar-thumb {
+  background: var(--paper-4);
+  border-radius: var(--r-pill);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+.scroll-body::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-4);
+  background-clip: padding-box;
 }
 
 /* ---- Panels ---- */
@@ -72,6 +161,11 @@ body {
   background: var(--surface);
   border: 1px solid var(--border-hair);
   box-shadow: var(--shadow-card);
+  transition: box-shadow 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+.panel:hover {
+  border-color: var(--border-ink);
+  box-shadow: var(--shadow-pop);
 }
 .panel-header {
   display: flex;
@@ -227,7 +321,7 @@ body {
 }
 .button-primary {
   background: var(--accent);
-  color: #fff;
+  color: var(--ink-on-accent);
 }
 .button-primary:hover:not(:disabled) {
   background: var(--accent-strong);
@@ -265,6 +359,7 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 6px;
   min-width: 80px;
   padding: 5px 11px;
   border-radius: var(--r-pill);
@@ -273,6 +368,34 @@ body {
   text-transform: capitalize;
   background: var(--idle-bg);
   color: var(--idle-ink);
+}
+/* Live status dot — inherits the badge text colour. */
+.status-badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: currentColor;
+  flex-shrink: 0;
+}
+.status-online::before,
+.status-running::before,
+.status-stopping::before {
+  animation: status-pulse 1.6s ease-in-out infinite;
+}
+@keyframes status-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .status-badge::before {
+    animation: none !important;
+  }
 }
 .status-online,
 .status-running,
