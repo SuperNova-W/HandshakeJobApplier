@@ -3,7 +3,6 @@ import React from "react";
 import {
   Activity,
   ArrowRight,
-  ChevronsRight,
   FolderOpen,
   Globe,
   History,
@@ -189,11 +188,13 @@ function App() {
       <header className="topbar">
         <div className="topbar-brand">
           <div className="topbar-mark" aria-hidden="true">
-            <ChevronsRight size={18} strokeWidth={2.5} />
+            <img src="/brand/handshook-mark-reversed.svg" alt="" />
           </div>
           <div className="topbar-heading">
             <span className="eyebrow">Chrome Extension</span>
-            <h1>HandShook</h1>
+            <h1 className="hs-wordmark">
+              HandSh<span className="hs-oo"><img src="/brand/handshook-mark-reversed.svg" alt="" /></span>k
+            </h1>
           </div>
         </div>
         <div className="topbar-actions">

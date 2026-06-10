@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>HandShook — Apply to every one-click job, automatically</title>
 <meta name="description" content="A local-first Chrome extension that auto-applies to native Handshake one-click jobs from your own logged-in session. No passwords stored. Every result logged on your machine." />
+<link rel="icon" type="image/png" sizes="32x32" href="brand/icon32.png" />
+<link rel="icon" type="image/png" sizes="16x16" href="brand/icon16.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Sofia+Sans:ital,wght@0,300..700;1,400..500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -99,10 +101,10 @@ img{display:block; max-width:100%;}
 .nav-inner{height:60px; display:flex; align-items:center; gap:28px; padding:0 14px 0 24px;
   background:var(--card); border:1px solid var(--hairline); border-radius:var(--r-full); box-shadow:var(--shadow-pill);}
 .brand{display:flex; align-items:center; gap:11px; font-family:var(--display); font-weight:600; font-size:18px; letter-spacing:-.01em;}
-.brand .mark{position:relative; width:30px; height:22px; flex:0 0 auto;}
-.brand .mark::before,.brand .mark::after{content:""; position:absolute; top:0; width:22px; height:22px; border-radius:var(--r-full);}
-.brand .mark::before{left:0; background:var(--ink);}
-.brand .mark::after{right:0; background:var(--signal-light); mix-blend-mode:multiply;}
+.brand .mark{height:22px; width:auto; flex:0 0 auto; display:block;}
+/* Wordmark lockup — the Overlap mark nested into the "oo" of "HandShook". */
+.brand .oo{display:inline-block; height:.6em; width:.96em; margin:0 .02em; transform:translateY(.045em);}
+.brand .oo img{display:block; height:100%; width:100%;}
 .nav-links{display:flex; gap:30px; margin-left:10px; font-size:16px; font-weight:500; color:var(--ink);}
 .nav-links a{position:relative;}
 .nav-right{margin-left:auto; display:flex; align-items:center; gap:12px;}
@@ -248,7 +250,6 @@ img{display:block; max-width:100%;}
 .footer-top{display:grid; grid-template-columns:1.4fr repeat(3,1fr); gap:40px; padding-bottom:48px; border-bottom:1px solid var(--divider-dark);}
 @media(max-width:768px){ .footer-top{grid-template-columns:1fr 1fr;} .footer-inner{padding:56px 20px 40px;} }
 .footer .brand{color:var(--on-ink);}
-.footer .brand .mark::before{background:var(--on-ink);}
 .footer-blurb{margin-top:18px; color:var(--on-ink-mute); font-size:14px; line-height:1.6; max-width:38ch;}
 .fcol h4{margin:0 0 18px; font-size:13px; letter-spacing:.04em; text-transform:uppercase; color:var(--on-ink-mute); font-weight:700;}
 .fcol a{display:inline-flex; align-items:center; gap:6px; color:var(--on-ink-mute); font-size:14px; padding:8px 0;}
@@ -339,7 +340,7 @@ img{display:block; max-width:100%;}
 <!-- ============ NAV ============ -->
 <header class="nav">
   <div class="wrap nav-inner">
-    <a class="brand" href="#top"><span class="mark"></span>HandShook</a>
+    <a class="brand" href="#top"><img class="mark" src="brand/handshook-mark.svg" alt="" />HandSh<span class="oo"><img src="brand/handshook-mark.svg" alt="" /></span>k</a>
     <nav class="nav-links">
       <a href="#how">How it works</a>
       <a href="#features">Features</a>
@@ -599,7 +600,7 @@ img{display:block; max-width:100%;}
     <h2 class="display-lg footer-lead">We’re here when you’re ready to apply.</h2>
     <div class="footer-top">
       <div>
-        <a class="brand" href="#top"><span class="mark"></span>HandShook</a>
+        <a class="brand" href="#top"><img class="mark" src="brand/handshook-mark-reversed.svg" alt="" />HandSh<span class="oo"><img src="brand/handshook-mark-reversed.svg" alt="" /></span>k</a>
         <p class="footer-blurb">A local-first Chrome extension that auto-applies to native Handshake one-click jobs — and keeps the receipts on your machine.</p>
       </div>
       <div class="fcol">

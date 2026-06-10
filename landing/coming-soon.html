@@ -6,6 +6,8 @@
 <title>HandShook — Coming soon to the Chrome Web Store</title>
 <meta name="description" content="HandShook is on its way to the Chrome Web Store. Auto-apply to native Handshake one-click jobs from your own logged-in session — local-first, no passwords stored." />
 <meta name="robots" content="noindex" />
+<link rel="icon" type="image/png" sizes="32x32" href="brand/icon32.png" />
+<link rel="icon" type="image/png" sizes="16x16" href="brand/icon16.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Sofia+Sans:ital,wght@0,300..700;1,400..500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -39,10 +41,10 @@ a{color:inherit; text-decoration:none;}
 .nav-inner{height:60px; display:flex; align-items:center; padding:0 14px 0 24px;
   background:var(--card); border:1px solid var(--hairline); border-radius:var(--r-full); box-shadow:var(--shadow-pill);}
 .brand{display:flex; align-items:center; gap:11px; font-family:var(--ui); font-weight:600; font-size:18px; letter-spacing:-.01em;}
-.brand .mark{position:relative; width:30px; height:22px; flex:0 0 auto;}
-.brand .mark::before,.brand .mark::after{content:""; position:absolute; top:0; width:22px; height:22px; border-radius:var(--r-full);}
-.brand .mark::before{left:0; background:var(--ink);}
-.brand .mark::after{right:0; background:var(--signal-light); mix-blend-mode:multiply;}
+.brand .mark{height:22px; width:auto; flex:0 0 auto; display:block;}
+/* Wordmark lockup — the Overlap mark nested into the "oo" of "HandShook". */
+.brand .oo{display:inline-block; height:.6em; width:.96em; margin:0 .02em; transform:translateY(.045em);}
+.brand .oo img{display:block; height:100%; width:100%;}
 .nav-back{margin-left:auto; font-size:15px; font-weight:500; color:var(--ink); display:inline-flex; align-items:center; gap:7px;}
 .nav-back svg{width:16px; height:16px;}
 
@@ -109,7 +111,7 @@ a{color:inherit; text-decoration:none;}
 
 <header class="nav">
   <div class="wrap nav-inner">
-    <a class="brand" href="index.html"><span class="mark"></span>HandShook</a>
+    <a class="brand" href="index.html"><img class="mark" src="brand/handshook-mark.svg" alt="" />HandSh<span class="oo"><img src="brand/handshook-mark.svg" alt="" /></span>k</a>
     <a class="nav-back" href="index.html">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
       Back to home

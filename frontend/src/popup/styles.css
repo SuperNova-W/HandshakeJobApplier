@@ -54,8 +54,32 @@ body {
   align-items: center;
   justify-content: center;
 }
+.topbar-mark img {
+  display: block;
+  height: 20px;
+  width: auto;
+}
 .topbar-heading {
   min-width: 0;
+}
+/* Wordmark lockup — the Overlap mark nested into the "oo" of "HandShook". */
+.hs-wordmark {
+  display: inline-flex;
+  align-items: baseline;
+  line-height: 1;
+  white-space: nowrap;
+}
+.hs-oo {
+  display: inline-block;
+  height: 0.6em;
+  width: 0.96em;
+  margin: 0 0.015em;
+  transform: translateY(0.045em);
+}
+.hs-oo img {
+  display: block;
+  height: 100%;
+  width: 100%;
 }
 .topbar-heading .eyebrow {
   display: inline-flex;

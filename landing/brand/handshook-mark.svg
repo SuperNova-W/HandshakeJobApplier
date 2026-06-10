@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 100" role="img" aria-label="HandShook mark">
+  <defs>
+    <clipPath id="hsLens"><circle cx="60" cy="50" r="40"></circle></clipPath>
+  </defs>
+  
+  <circle cx="60" cy="50" r="40" fill="#141413"></circle>
+  
+  <circle cx="100" cy="50" r="40" fill="#f37338"></circle>
+  
+  <g clip-path="url(#hsLens)"><circle cx="100" cy="50" r="40" fill="#9a3a0a"></circle></g>
+</svg>

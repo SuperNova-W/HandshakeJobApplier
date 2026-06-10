@@ -299,6 +299,15 @@ function findButtonByText(candidates: string[]): HTMLButtonElement | null {
   );
 }
 
+function buttonByTextWithin(root: ParentNode, candidates: string[]): HTMLButtonElement | null {
+  return (
+    Array.from(root.querySelectorAll<HTMLButtonElement>("button")).find((b) => {
+      const t = (b.textContent ?? "").trim().toLowerCase();
+      return candidates.some((c) => t === c || t.startsWith(c));
+    }) ?? null
+  );
+}
+
 function findApplyButton(): HTMLButtonElement | null {
   const hooked = document.querySelector<HTMLButtonElement>(
     '[data-hook="apply-button"],[data-hook="easy-apply-button"],[data-hook="1-click-apply-button"]'
@@ -1033,7 +1042,7 @@ const SETTLE_MS = 200;
 async function waitForApplyModal(timeoutMs = 6000): Promise<void> {
   await waitFor(
     () =>
-      !!document.querySelector('[role="dialog"],[aria-modal="true"]') ||
+      !!findApplyModalRoot() ||
       !!findSubmitOrConfirm() ||
       hasCoverLetterUpload() ||
       hasOtherRequiredDocs() ||
@@ -1099,17 +1108,39 @@ function dumpListCards(cards: JobCard[]): void {
     .catch(() => {});
 }
 
+function isScrollableY(el: HTMLElement): boolean {
+  const oy = getComputedStyle(el).overflowY;
+  return (oy === "auto" || oy === "scroll") && el.scrollHeight > el.clientHeight + 20;
+}
+
 // Find the scrollable list container so we can load more virtualized cards.
+// Handshake's list virtualization does not always put the scroller as an
+// ancestor of the individual card; sometimes the scrollable element is a sibling
+// wrapper under left-content. Look both around the card and inside the left pane
+// before falling back to the document scroller.
 function findScrollContainer(el: HTMLElement | null): HTMLElement | null {
   let node: HTMLElement | null = el?.parentElement ?? null;
   while (node) {
-    const oy = getComputedStyle(node).overflowY;
-    if ((oy === "auto" || oy === "scroll") && node.scrollHeight > node.clientHeight + 20) {
-      return node;
-    }
+    if (isScrollableY(node)) return node;
     node = node.parentElement;
   }
-  return null;
+
+  const leftPane = document.querySelector<HTMLElement>('[data-hook="left-content"]');
+  const paneCandidates = leftPane
+    ? [leftPane, ...Array.from(leftPane.querySelectorAll<HTMLElement>("*"))]
+    : [];
+  const bestPaneScroller =
+    paneCandidates
+      .filter(isScrollableY)
+      .sort((a, b) => b.scrollHeight - a.scrollHeight)[0] ?? null;
+  if (bestPaneScroller) return bestPaneScroller;
+
+  const doc = document.scrollingElement;
+  return doc instanceof HTMLElement && doc.scrollHeight > doc.clientHeight + 20 ? doc : null;
+}
+
+function isNearScrollBottom(el: HTMLElement): boolean {
+  return el.scrollTop + el.clientHeight >= el.scrollHeight - 24;
 }
 
 // When selecting a card fails, dump the card's DOM so we can see where the select
@@ -1218,6 +1249,14 @@ function currentPageNumber(): number {
   return Number.isFinite(n) && n > 0 ? n : 1;
 }
 
+function isJobSearchUrl(url = window.location.href): boolean {
+  try {
+    return new URL(url).pathname.includes("/job-search");
+  } catch {
+    return false;
+  }
+}
+
 function isDisabledEl(el: HTMLElement): boolean {
   if ((el as HTMLButtonElement).disabled) return true;
   if (el.getAttribute("aria-disabled") === "true") return true;
@@ -1225,55 +1264,142 @@ function isDisabledEl(el: HTMLElement): boolean {
   return false;
 }
 
+function isVisibleEl(el: HTMLElement): boolean {
+  return el.getClientRects().length > 0;
+}
+
+function paginationRoot(): HTMLElement | null {
+  const explicit = Array.from(
+    document.querySelectorAll<HTMLElement>(
+      '[aria-label*="pagination" i],[data-hook*="pagination" i]'
+    )
+  ).find((el) => el.querySelector('a[href*="page="],a[href*="job-search"],button,[role="button"]'));
+  if (explicit) return explicit;
+
+  const pageLink = Array.from(
+    document.querySelectorAll<HTMLAnchorElement>('a[href*="page="][href*="job-search"]')
+  ).find(isVisibleEl);
+  if (!pageLink) return null;
+
+  let node: HTMLElement | null = pageLink.parentElement;
+  for (let hops = 0; hops < 6 && node; hops++, node = node.parentElement) {
+    const numberedControls = Array.from(node.querySelectorAll<HTMLElement>('a,button,[role="button"]'))
+      .filter(isVisibleEl)
+      .filter((el) => pageNumberForControl(el) !== null);
+    if (numberedControls.length >= 2) return node;
+  }
+
+  return pageLink.parentElement;
+}
+
+function pageNumberForControl(el: HTMLElement): number | null {
+  const text = (el.textContent ?? "").trim();
+  if (/^\d+$/.test(text)) {
+    const n = parseInt(text, 10);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  const aria = el.getAttribute("aria-label") ?? "";
+  const labelledPage = aria.match(/\bpage\s+(\d+)\b/i);
+  if (labelledPage) {
+    const n = parseInt(labelledPage[1], 10);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  return null;
+}
+
 function findNextPageControl(): HTMLElement | null {
   const nextPage = currentPageNumber() + 1;
+  const root = paginationRoot();
+  if (!root) {
+    dumpWalker("next-page-no-pagination-root", { page: currentPageNumber() });
+    return null;
+  }
 
   // 1. Explicit "next" aria-label / data-hook on a button or link.
   const byAria = Array.from(
-    document.querySelectorAll<HTMLElement>(
+    root.querySelectorAll<HTMLElement>(
       'a[aria-label*="next" i],button[aria-label*="next" i],[data-hook*="next" i]'
     )
-  ).find((el) => !isDisabledEl(el));
+  ).find((el) => !isDisabledEl(el) && isVisibleEl(el));
   if (byAria) return byAria;
 
   // 2. A pagination link that points at page N+1.
   const byHref = Array.from(
-    document.querySelectorAll<HTMLAnchorElement>('a[href*="page="]')
+    root.querySelectorAll<HTMLAnchorElement>('a[href*="page="]')
   ).find((a) => {
+    if (!/\/job-search/.test(a.pathname)) return false;
     const ap = new URLSearchParams(a.search).get("page");
     return ap !== null && parseInt(ap, 10) === nextPage;
   });
-  if (byHref && !isDisabledEl(byHref)) return byHref;
+  if (byHref && !isDisabledEl(byHref) && isVisibleEl(byHref)) return byHref;
 
   // 3. A button/link whose visible text is the next page number, or "Next" / a
   //    next-arrow glyph.
-  const candidates = Array.from(
-    document.querySelectorAll<HTMLElement>('a,button,[role="button"]')
-  );
+  const orderedCandidates = Array.from(
+    root.querySelectorAll<HTMLElement>('a,button,[role="button"]')
+  ).filter(isVisibleEl);
+  const candidates = orderedCandidates.filter((el) => !isDisabledEl(el));
   const byNumber = candidates.find(
-    (el) => (el.textContent ?? "").trim() === String(nextPage) && !isDisabledEl(el)
+    (el) => pageNumberForControl(el) === nextPage
   );
   if (byNumber) return byNumber;
   const byText = candidates.find((el) => {
     const t = (el.textContent ?? "").trim().toLowerCase();
-    return (t === "next" || t === "next page" || t === "›" || t === "→") && !isDisabledEl(el);
+    return t === "next" || t === "next page" || t === "›" || t === ">" || t === "→";
   });
   if (byText) return byText;
+
+  // 4. Icon-only pagination, like:
+  //    <<  <  1  ...  3  4  ...  400  >  >>
+  // The "5" control is not visible, and the single-chevron button may have no
+  // text/aria label. In that case, find the current page in the pagination row
+  // and click the first enabled non-number control after it. That is the single
+  // next-page arrow; the second such control is the jump-to-last arrow.
+  const currentPage = currentPageNumber();
+  const currentIdx = orderedCandidates.findIndex((el) => {
+    const ariaCurrent = el.getAttribute("aria-current");
+    return ariaCurrent === "page" || ariaCurrent === "true" || pageNumberForControl(el) === currentPage;
+  });
+  if (currentIdx >= 0) {
+    const afterCurrent = orderedCandidates.slice(currentIdx + 1).find((el) => {
+      const t = (el.textContent ?? "").trim();
+      if (isDisabledEl(el) || pageNumberForControl(el) !== null || t === "..." || t === "…") {
+        return false;
+      }
+      if (el instanceof HTMLAnchorElement) {
+        const href = el.getAttribute("href") ?? "";
+        return href === "" || /\/job-search/.test(el.pathname);
+      }
+      return true;
+    });
+    if (afterCurrent) return afterCurrent;
+  }
 
   return null;
 }
 
 function dumpNextPageMiss(): void {
-  const nav = document.querySelector(
-    '[aria-label*="pagination" i],nav[role="navigation"],[data-hook*="pagination" i],nav'
-  ) as HTMLElement | null;
+  const root = paginationRoot();
   const payload = {
     url: window.location.href,
     currentPage: currentPageNumber(),
-    paginationOuterHtml: nav ? nav.outerHTML.slice(0, 1500) : null,
+    paginationOuterHtml: root ? root.outerHTML.slice(0, 1500) : null,
     pageLinks: Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href*="page="]'))
       .slice(0, 12)
-      .map((a) => ({ text: (a.textContent ?? "").trim().slice(0, 20), href: a.getAttribute("href") }))
+      .map((a) => ({ text: (a.textContent ?? "").trim().slice(0, 20), href: a.getAttribute("href") })),
+    controls: Array.from((root ?? document).querySelectorAll<HTMLElement>('a,button,[role="button"]'))
+      .slice(0, 20)
+      .map((el) => ({
+        tag: el.tagName,
+        text: (el.textContent ?? "").trim().slice(0, 20),
+        ariaLabel: el.getAttribute("aria-label"),
+        ariaCurrent: el.getAttribute("aria-current"),
+        dataHook: el.getAttribute("data-hook"),
+        disabled: isDisabledEl(el),
+        visible: isVisibleEl(el)
+      }))
   };
   log("next-page miss", payload);
   void chrome.runtime
@@ -1284,7 +1410,9 @@ function dumpNextPageMiss(): void {
 // The highest page number shown in the pagination (e.g. 400 in "1 2 3 … 400"), so
 // we know when we're on the last page. null if not found.
 function lastPageNumber(): number | null {
-  const nums = Array.from(document.querySelectorAll<HTMLElement>('a,button,[role="button"]'))
+  const root = paginationRoot();
+  if (!root) return null;
+  const nums = Array.from(root.querySelectorAll<HTMLElement>('a,button,[role="button"]'))
     .map((el) => parseInt((el.textContent ?? "").trim(), 10))
     .filter((n) => Number.isFinite(n) && n > 0);
   return nums.length ? Math.max(...nums) : null;
@@ -1297,6 +1425,12 @@ function lastPageNumber(): number | null {
 // jarring reload.
 async function goToNextPage(): Promise<boolean> {
   const beforePage = currentPageNumber();
+  const beforeUrl = window.location.href;
+
+  if (!isJobSearchUrl(beforeUrl)) {
+    dumpWalker("next-page-not-on-search", { page: beforePage });
+    return false;
+  }
 
   const last = lastPageNumber();
   if (last !== null && beforePage >= last) {
@@ -1315,6 +1449,13 @@ async function goToNextPage(): Promise<boolean> {
   }
 
   log(`Clicking next page (from page ${beforePage}).`);
+  if (control instanceof HTMLAnchorElement && !isJobSearchUrl(control.href)) {
+    dumpWalker("next-page-rejected-non-search-link", {
+      page: beforePage,
+      href: control.getAttribute("href")
+    });
+    return false;
+  }
   if (control instanceof HTMLAnchorElement && control.target === "_blank") {
     control.target = "_self";
   }
@@ -1323,12 +1464,19 @@ async function goToNextPage(): Promise<boolean> {
 
   // Success = the URL page advanced OR the visible card set changed.
   const advanced = await waitFor(() => {
+    if (!isJobSearchUrl()) return true;
     if (currentPageNumber() > beforePage) return true;
     const nowIds = collectJobCards()
       .map((c) => c.id)
       .join(",");
     return nowIds !== "" && nowIds !== beforeIds;
   }, 8000);
+
+  if (!isJobSearchUrl()) {
+    dumpWalker("next-page-left-search", { from: beforeUrl, to: window.location.href });
+    window.location.href = beforeUrl;
+    return false;
+  }
 
   if (!advanced) {
     dumpWalker("next-page-failed", { page: beforePage });
@@ -1404,8 +1552,35 @@ async function runListInPlace(
           seen: seen.size,
           rendered: all.length,
           page: currentPageNumber(),
-          pagesVisited: pagesVisited()
+          pagesVisited: pagesVisited(),
+          scrollerFound: !!scroller,
+          scrollerAtBottom: scroller ? isNearScrollBottom(scroller) : null,
+          scrollTop: scroller?.scrollTop ?? null,
+          scrollHeight: scroller?.scrollHeight ?? null,
+          clientHeight: scroller?.clientHeight ?? null
         });
+
+        // If the visible list is virtualized and the scroller is not at the
+        // bottom yet, the current DOM batch is exhausted but the current page is
+        // not. Force one larger nudge; only advance pages if the scroller itself
+        // refuses to move.
+        if (scroller && !isNearScrollBottom(scroller)) {
+          const beforeForceTop = scroller.scrollTop;
+          scroller.scrollBy({ top: Math.round(scroller.clientHeight * 1.5), behavior: "auto" });
+          await sleep(700);
+          const afterForceTop = scroller.scrollTop;
+          dumpWalker("scroll-force", {
+            beforeForceTop,
+            afterForceTop,
+            moved: afterForceTop !== beforeForceTop,
+            scrollerAtBottom: isNearScrollBottom(scroller)
+          });
+          if (afterForceTop !== beforeForceTop) {
+            staleScrolls = 0;
+            continue;
+          }
+        }
+
         if (pagesVisited() >= maxPages) {
           dumpWalker("page-limit-reached", { maxPages, page: currentPageNumber(), processed });
           break;
@@ -1424,6 +1599,7 @@ async function runListInPlace(
       scroller =
         scroller ??
         findScrollContainer(last?.el ?? document.querySelector('[data-hook^="job-result-card"]'));
+      const beforeTop = scroller?.scrollTop ?? null;
       try {
         last?.el.scrollIntoView({ block: "end", behavior: "auto" });
       } catch {
@@ -1440,7 +1616,10 @@ async function runListInPlace(
         attempt: staleScrolls,
         rendered: all.length,
         seen: seen.size,
-        scrollerFound: !!scroller
+        scrollerFound: !!scroller,
+        scrollTopBefore: beforeTop,
+        scrollTopAfter: scroller?.scrollTop ?? null,
+        scrollerAtBottom: scroller ? isNearScrollBottom(scroller) : null
       });
       await sleep(900);
       continue;
@@ -1574,8 +1753,26 @@ async function waitForEnabledSubmit(timeoutMs: number): Promise<HTMLButtonElemen
 // Find the apply modal's submit/confirm button. Kept broad because Handshake's
 // final button is labelled "Submit Application" but a secondary confirmation step
 // can render a plain "Submit" or "Confirm".
+function findApplyModalRoot(): HTMLElement | null {
+  const dialogs = Array.from(
+    document.querySelectorAll<HTMLElement>('[role="dialog"],[aria-modal="true"]')
+  );
+  return (
+    dialogs.find((dialog) => {
+      const text = (dialog.innerText ?? dialog.textContent ?? "").replace(/\s+/g, " ").toLowerCase();
+      if (/it.?s better on the app|everything the website does/i.test(text)) return false;
+      return (
+        /submit application|cover letter|transcript|screening questions|application questions|other required documents/.test(
+          text
+        ) || !!buttonByTextWithin(dialog, ["submit application", "submit & continue"])
+      );
+    }) ?? null
+  );
+}
+
 function findSubmitOrConfirm(): HTMLButtonElement | null {
-  return findButtonByText([
+  const root = findApplyModalRoot() ?? document;
+  return buttonByTextWithin(root, [
     "submit application",
     "submit & continue",
     "submit",
@@ -1589,25 +1786,53 @@ function findSubmitOrConfirm(): HTMLButtonElement | null {
 // closed (no submit button left), the page now shows an applied state, or a
 // success message rendered.
 function applicationLooksSubmitted(): boolean {
-  if (!findButtonByText(["submit application", "submit & continue", "submit"])) return true;
   if (isAlreadyApplied()) return true;
   if (findShortTextEl(/application submitted|successfully applied|you have applied|applied to|application sent/i, 90))
     return true;
+  const applyModal = findApplyModalRoot();
+  if (!applyModal && !findSubmitOrConfirm()) return true;
   return false;
 }
 
+function visibleSnippet(el: HTMLElement | null, max = 220): string | null {
+  const text = (el?.innerText ?? el?.textContent ?? "").replace(/\s+/g, " ").trim();
+  return text ? text.slice(0, max) : null;
+}
+
+function submitBlockingMessages(): string[] {
+  const dialog = findApplyModalRoot() ?? document.body;
+  const selectors = [
+    '[role="alert"]',
+    '[aria-live]',
+    '[data-status]',
+    '[class*="error" i]',
+    '[class*="warning" i]',
+    '[class*="invalid" i]'
+  ].join(",");
+  const messages = Array.from(dialog.querySelectorAll<HTMLElement>(selectors))
+    .map((el) => visibleSnippet(el, 180))
+    .filter((text): text is string => !!text);
+  return Array.from(new Set(messages)).slice(0, 8);
+}
+
 function dumpSubmitState(label: string, submitted: boolean, clicked: boolean): void {
+  const applyModal = findApplyModalRoot();
   const payload = {
     label,
     submitted,
     clicked,
     url: window.location.href,
-    dialogPresent: !!document.querySelector('[role="dialog"]'),
+    applyModalPresent: !!applyModal,
+    dialogs: Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"],[aria-modal="true"]'))
+      .slice(0, 4)
+      .map((dialog) => visibleSnippet(dialog, 180)),
     appliedState: isAlreadyApplied(),
-    submitButtons: Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
+    submitButtons: Array.from((applyModal ?? document).querySelectorAll<HTMLButtonElement>("button"))
       .filter((b) => /submit|confirm|apply/i.test(b.textContent ?? ""))
       .slice(0, 10)
-      .map((b) => ({ text: (b.textContent ?? "").trim().slice(0, 40), disabled: b.disabled }))
+      .map((b) => ({ text: (b.textContent ?? "").trim().slice(0, 40), disabled: b.disabled })),
+    blockingMessages: submitBlockingMessages(),
+    dialogText: visibleSnippet(applyModal, 700)
   };
   log("submit-state", payload);
   void chrome.runtime
@@ -1628,14 +1853,19 @@ function dumpSubmitState(label: string, submitted: boolean, clicked: boolean): v
 async function clickSubmitAndConfirm(label: string): Promise<boolean> {
   let everClicked = false;
 
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 4; attempt++) {
     // Wait for an enabled submit/confirm. The first wait is generous because a
     // freshly-uploaded document can take many seconds to finish processing before
     // Handshake enables Submit.
     await waitFor(() => {
       const b = findSubmitOrConfirm();
-      return !!b && !b.disabled;
-    }, attempt === 0 ? 20000 : 3000);
+      return applicationLooksSubmitted() || (!!b && !b.disabled);
+    }, attempt === 0 ? 20000 : 6000);
+
+    if (applicationLooksSubmitted()) {
+      log(`[${label}] application appears submitted before another click was needed.`);
+      break;
+    }
 
     const btn = findSubmitOrConfirm();
     if (!btn || btn.disabled) break;
@@ -1643,15 +1873,19 @@ async function clickSubmitAndConfirm(label: string): Promise<boolean> {
     log(`[${label}] submit attempt ${attempt + 1}: clicking "${(btn.textContent ?? "").trim()}"`);
     btn.click();
     everClicked = true;
-    // Resolve as soon as the modal closes / an applied state shows, instead of a
-    // flat 1800ms. If a second confirm step renders instead, this falls through
-    // and the next loop iteration waits for and clicks it.
-    await waitFor(() => applicationLooksSubmitted(), 2000);
+    // Handshake can accept the click, disable Submit while it finalizes, then
+    // close the modal several seconds later. Wait for that settled state instead
+    // of treating the immediate disabled button as a failed application.
+    await waitFor(() => applicationLooksSubmitted(), attempt === 0 ? 12000 : 8000);
 
     if (applicationLooksSubmitted()) {
       log(`[${label}] application appears submitted (modal closed / applied state).`);
       break;
     }
+  }
+
+  if (everClicked && !applicationLooksSubmitted()) {
+    await waitFor(() => applicationLooksSubmitted(), 8000);
   }
 
   const submitted = applicationLooksSubmitted();
