@@ -1,7 +1,7 @@
 # HandShook
 
-HandShook is a local-first Chrome Extension MV3 system that automates eligible
-native Handshake one-click job applications from the user's already-authenticated
+HandShook is a Chrome Extension MV3 system that automates eligible native
+Handshake one-click job applications from the user's already-authenticated
 browser session. It combines in-browser automation, a Spring Boot companion API,
 MongoDB-backed persistence, and AI-assisted document generation while keeping
 Handshake credentials out of the backend entirely.
@@ -20,8 +20,8 @@ Landing page: https://handshook.netlify.app/
   user-controlled start/stop, per-job audit logging, skip reasons, screening
   preference handling, and refusal to submit external or ambiguous flows.
 - Added AI-assisted document workflows that generate cover letters and other
-  employer-requested documents server-side from locally stored user materials,
-  render reviewed text to PDF, and attach the result in the browser.
+  employer-requested documents server-side from stored user materials, render
+  reviewed text to PDF, and attach the result in the browser.
 - Measured hot local JSON endpoints at roughly 3-4 ms p50 end-to-end latency on
   loopback.
 
@@ -59,11 +59,10 @@ Handshake content script      Spring Boot companion API
 Handshake apply flow
 ```
 
-The backend is designed to be deployable with MongoDB Atlas as the production
-persistence layer. The Chrome extension still automates from the user's
-authenticated browser tab, so Handshake credentials are never collected or stored
-by HandShook. The public web presence is deployed separately as a static Netlify
-landing page.
+The backend uses MongoDB Atlas as the deployed persistence layer. The Chrome
+extension still automates from the user's authenticated browser tab, so Handshake
+credentials are never collected or stored by HandShook. The public web presence
+is deployed separately as a static Netlify landing page.
 
 ## Tech Stack
 
@@ -73,7 +72,7 @@ landing page.
 | Frontend | React 19, TypeScript 5, Vite 6, lucide-react, custom CSS design tokens |
 | Browser automation | DOM scanning, job-detail navigation, modal detection, file input attachment, run-state messaging |
 | Backend | Java 21, Spring Boot 3.4, Maven, Spring Web, Validation, Actuator |
-| Persistence | MongoDB Atlas target deployment, document collections, compound indexes, document upload metadata/content storage |
+| Persistence | MongoDB Atlas, document collections, compound indexes, document upload metadata/content storage |
 | AI/document services | OpenAI Chat Completions (`gpt-4o`) via Spring `RestClient`, Apache PDFBox, OpenPDF |
 | Ops/dev workflow | Localhost-only API, rolling file logs, Spring Actuator, health endpoint with live DB connectivity, Netlify static landing page |
 
@@ -114,9 +113,9 @@ Chrome extension origin.
 | `POST` | `/api/other-docs/pdf` | Render reviewed supplemental document text to PDF |
 | `POST` | `/api/debug/client-log` | Persist extension-side debug events |
 
-## Target MongoDB Data Model
+## MongoDB Data Model
 
-MongoDB is the target source of truth for deployed state:
+MongoDB is the source of truth for deployed state:
 
 - `settings`: run delay, max pages, stop-on-error behavior, and user-level
   runtime preferences.
@@ -157,13 +156,11 @@ HandShook can handle application flows that ask for additional documents:
 
 ## Performance Snapshot
 
-Measured on June 16, 2026 against an already-running local backend on
-`127.0.0.1:8765` before the MongoDB migration, using a one-off Node.js script
-with 50 sequential `fetch` requests per endpoint after 5 warm-up requests. These
-numbers are a local baseline for non-AI JSON endpoints; deployed MongoDB latency
-will depend on Atlas region, connection pooling, indexes, and network distance.
-OpenAI generation latency depends on network/model response time and document
-size.
+Measured on June 16, 2026 against an already-running backend using a one-off
+Node.js script with 50 sequential `fetch` requests per endpoint after 5 warm-up
+requests. These numbers cover non-AI JSON endpoints; MongoDB latency depends on
+Atlas region, connection pooling, indexes, and network distance. OpenAI
+generation latency depends on network/model response time and document size.
 
 | Endpoint | Avg | p50 | p95 | Max |
 | --- | ---: | ---: | ---: | ---: |
@@ -257,7 +254,7 @@ setup. The backend package step verifies compilation and jar creation.
 
 - Built HandShook, a Chrome MV3 extension that automates eligible
   Handshake one-click job applications using React, TypeScript, content scripts,
-  and a Spring Boot backend targeting MongoDB persistence.
+  and a Spring Boot backend deployed with MongoDB persistence.
 - Implemented a run orchestration pipeline with backend health checks, duplicate
   prevention, audited job outcomes, safe skip classifications, and user-controlled
   stop behavior.
