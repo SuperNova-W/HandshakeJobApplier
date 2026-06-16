@@ -1,6 +1,5 @@
 package com.handshook.backend.settings;
 
-import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -16,10 +15,5 @@ public class SettingsController {
     @GetMapping
     public SettingsDto getSettings() {
         return settingsService.getSettings();
-    }
-
-    @PutMapping
-    public SettingsDto updateSettings(@Valid @RequestBody UpdateSettingsRequest request) {
-        return settingsService.updateSettings(request);
     }
 }

@@ -12,16 +12,6 @@ public class ContentController {
         this.contentService = contentService;
     }
 
-    @GetMapping("/resume")
-    public ResumeDto getResume() {
-        return contentService.getResume();
-    }
-
-    @PutMapping("/resume")
-    public ResumeDto updateResume(@RequestBody UpdateResumeRequest request) {
-        return contentService.updateResume(request);
-    }
-
     @GetMapping("/screening")
     public ScreeningPrefsDto getScreeningPrefs() {
         return contentService.getScreeningPrefs();

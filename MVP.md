@@ -439,35 +439,10 @@ Response:
 }
 ```
 
-### 15.3 `PUT /api/settings`
+### 15.3 Settings updates
 
-Purpose:
-- Persist user-updated settings
-
-Request:
-
-```json
-{
-  "applyDelayMs": 1500,
-  "maxPagesPerRun": 10,
-  "stopOnError": false
-}
-```
-
-Response:
-
-```json
-{
-  "applyDelayMs": 1500,
-  "maxPagesPerRun": 10,
-  "stopOnError": false,
-  "updatedAt": "2026-04-01T12:00:00.000Z"
-}
-```
-
-Validation:
-- `applyDelayMs >= 1000`
-- `maxPagesPerRun >= 1`
+Settings are currently read-only through `GET /api/settings`; the unused
+`PUT /api/settings` endpoint was removed from the backend.
 
 ### 15.4 `POST /api/runs`
 

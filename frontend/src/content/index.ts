@@ -217,21 +217,32 @@ function dumpDomDiagnostics(): void {
 
 const SESSION_KEY = "haa_run_session";
 
+let extensionContextInvalidated = false;
+
+function isExtensionContextInvalidated(err: unknown): boolean {
+  return err instanceof Error && /extension context invalidated/i.test(err.message);
+}
+
+function noteExtensionContextInvalidated(err: unknown): boolean {
+  if (!isExtensionContextInvalidated(err)) return false;
+  if (!extensionContextInvalidated) {
+    warn("Extension context invalidated; stopping this stale content-script run. Reload the Handshake tab after reloading the extension.");
+  }
+  extensionContextInvalidated = true;
+  inPlaceStop = true;
+  return true;
+}
+
 interface RunSession {
   runId: string;
   settings: Settings;
-  jobQueue: string[];
   shouldStop: boolean;
-  // How many times we've navigated toward jobQueue[0] without landing on it.
-  // Guards against an infinite redirect loop (e.g. an external-apply job whose
-  // /jobs/<id> URL Handshake bounces to /job-search/<id>).
-  navAttempts?: number;
-  // "queue" = the navigation/session path (one job per page load, uses jobQueue).
+  // "detail" = process the currently-open job detail once, without navigation.
   // "list" = the in-place list walker. The list walker holds its progress in page
   // memory, so Handshake force-reloading the search page mid-run would otherwise
   // wipe it and restart from the top (re-applying). These fields persist the
   // walk so we can resume the SAME run after a reload instead of restarting.
-  mode?: "queue" | "list";
+  mode?: "detail" | "list";
   screening?: ScreeningPrefs;
   // Job ids already handled this run (applied/skipped). Marked seen BEFORE we
   // apply, so a reload mid-application skips that job rather than re-submitting it.
@@ -244,16 +255,31 @@ interface RunSession {
 }
 
 async function getSession(): Promise<RunSession | null> {
-  const result = await chrome.storage.session.get(SESSION_KEY);
-  return (result[SESSION_KEY] as RunSession | undefined) ?? null;
+  try {
+    const result = await chrome.storage.session.get(SESSION_KEY);
+    return (result[SESSION_KEY] as RunSession | undefined) ?? null;
+  } catch (err) {
+    if (noteExtensionContextInvalidated(err)) return null;
+    throw err;
+  }
 }
 
 async function saveSession(s: RunSession): Promise<void> {
-  await chrome.storage.session.set({ [SESSION_KEY]: s });
+  try {
+    await chrome.storage.session.set({ [SESSION_KEY]: s });
+  } catch (err) {
+    if (noteExtensionContextInvalidated(err)) return;
+    throw err;
+  }
 }
 
 async function clearSession(): Promise<void> {
-  await chrome.storage.session.remove(SESSION_KEY);
+  try {
+    await chrome.storage.session.remove(SESSION_KEY);
+  } catch (err) {
+    if (noteExtensionContextInvalidated(err)) return;
+    throw err;
+  }
 }
 
 // Persist the in-place walker's progress so it survives a Handshake hard reload.
@@ -355,10 +381,10 @@ function hasScreeningQuestions(): boolean {
 // Short text node that labels a section in the apply modal (e.g. the
 // "Attach other required documents" heading). Capped length so we match the
 // label, not a big container that happens to contain the words.
-function findShortTextEl(re: RegExp, maxLen = 80): HTMLElement | null {
+function findShortTextEl(re: RegExp, maxLen = 80, root: ParentNode = document): HTMLElement | null {
   return (
     Array.from(
-      document.querySelectorAll<HTMLElement>("h1,h2,h3,h4,h5,h6,label,div,span,p,strong")
+      root.querySelectorAll<HTMLElement>("h1,h2,h3,h4,h5,h6,label,div,span,p,strong")
     ).find((el) => {
       const t = (el.textContent ?? "").trim();
       return t.length > 0 && t.length < maxLen && re.test(t);
@@ -435,42 +461,6 @@ function scrapeJobContext(): JobContext {
   return { jobTitle: title, company, jobDescription: description };
 }
 
-// ─── Job list scraping ────────────────────────────────────────────────────────
-
-function collectJobLinksFromList(): string[] {
-  const seen = new Set<string>();
-  const links: string[] = [];
-  const allAnchors = Array.from(document.querySelectorAll<HTMLAnchorElement>("a[href]"));
-
-  allAnchors.forEach((a) => {
-    if (
-      (a.href.includes("/jobs/") || a.href.includes("/postings/")) &&
-      /\/\d+/.test(a.href)
-    ) {
-      const clean = a.href.split("?")[0].split("#")[0];
-      if (!seen.has(clean)) {
-        seen.add(clean);
-        links.push(clean);
-      }
-    }
-  });
-
-  log(
-    `collectJobLinksFromList: ${allAnchors.length} anchors scanned, ${links.length} job links matched`,
-    links.slice(0, 5)
-  );
-  if (links.length === 0) {
-    warn(
-      "collectJobLinksFromList found ZERO job links. Handshake job-search is a master-detail SPA " +
-        "(cards are not /jobs/ links). Dumping anchor + DOM diagnostics so we can derive real click selectors."
-    );
-    dumpAnchorDiagnostics();
-    dumpDomDiagnostics();
-  }
-
-  return links;
-}
-
 // ─── Apply logic ──────────────────────────────────────────────────────────────
 
 async function processCurrentJobPage(jobUrl: string, explicitId?: string): Promise<JobResult> {
@@ -490,6 +480,10 @@ async function processCurrentJobPage(jobUrl: string, explicitId?: string): Promi
   groupEnd();
 
   if (isAlreadyApplied()) return { ...base, status: "SKIPPED", skipReason: "ALREADY_APPLIED" };
+  if (jobId !== "unknown" && (await duplicateInDb(jobId))) {
+    log(`job ${jobId} already has a local applied/open-application record; skipping before Apply.`);
+    return { ...base, status: "SKIPPED", skipReason: "DUPLICATE_IN_DB" };
+  }
   if (isExternalApply()) return { ...base, status: "SKIPPED", skipReason: "APPLY_EXTERNALLY" };
   // NOTE: screening questions are no longer a pre-apply skip — they live INSIDE
   // the apply modal, so we click Apply first, then answer them below.
@@ -555,8 +549,12 @@ async function processCurrentJobPage(jobUrl: string, explicitId?: string): Promi
     // record APPLIED if it actually completed — otherwise the modal stayed open
     // with a disabled Submit (an unmet required field), so skip rather than log a
     // false "applied".
-    const submitted = await clickSubmitAndConfirm("apply");
-    if (!submitted) {
+    const outcome = await clickSubmitAndConfirm("apply");
+    if (outcome === "duplicate") {
+      dismissOpenDialog();
+      return { ...base, status: "SKIPPED", skipReason: "ALREADY_APPLIED" };
+    }
+    if (outcome === "incomplete") {
       dismissOpenDialog();
       return { ...base, status: "SKIPPED", skipReason: "SUBMIT_INCOMPLETE" };
     }
@@ -793,7 +791,8 @@ async function reportJobResult(runId: string, result: JobResult): Promise<boolea
       return !(response as { shouldStop: boolean }).shouldStop;
     }
     return true;
-  } catch {
+  } catch (err) {
+    noteExtensionContextInvalidated(err);
     return false;
   }
 }
@@ -810,14 +809,52 @@ async function reportRunComplete(
       finalStatus,
       errorMessage
     });
-  } catch {
+  } catch (err) {
+    noteExtensionContextInvalidated(err);
     // Background may have restarted; nothing to do here
   }
 }
 
+async function duplicateInDb(handshakeJobId: string): Promise<boolean> {
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "runtime/check-duplicate",
+      handshakeJobId
+    });
+    return !!(
+      response &&
+      typeof response === "object" &&
+      "duplicate" in response &&
+      (response as { duplicate: boolean }).duplicate
+    );
+  } catch (err) {
+    if (noteExtensionContextInvalidated(err)) return true;
+    warn(`duplicate check failed for job ${handshakeJobId}; continuing with DOM checks`, err);
+    return false;
+  }
+}
+
+async function runCurrentDetailOnce(runId: string, settings: Settings): Promise<void> {
+  const session = await getSession();
+  if (session?.shouldStop) {
+    await clearSession();
+    await reportRunComplete(runId, "STOPPED");
+    return;
+  }
+
+  await waitForJobDetailReady(Math.max(2000, settings.applyDelayMs));
+  const result = await processCurrentJobPage(window.location.href);
+  log("single detail job result", result);
+  const shouldContinue = await reportJobResult(runId, result);
+  dismissOpenDialog();
+  await clearSession();
+  await reportRunComplete(runId, shouldContinue ? "COMPLETED" : "STOPPED");
+}
+
 // ─── Session-based run continuation ──────────────────────────────────────────
-// Called on every page load. If there's a run in session storage and the current
-// page is the expected next job detail page, we process it and advance the queue.
+// Called on every page load. List sessions resume the in-place walker; detail
+// sessions process the current detail once. The old queue/navigation path was
+// intentionally removed because it hard-reloaded between jobs via location.href.
 
 async function continueSessionRun(): Promise<void> {
   const session = await getSession();
@@ -859,108 +896,27 @@ async function continueSessionRun(): Promise<void> {
     return;
   }
 
-  const { runId, settings, jobQueue, shouldStop } = session;
-  log(
-    `continueSessionRun: runId=${runId}, queueLen=${jobQueue.length}, shouldStop=${shouldStop}, url=${window.location.href}`
-  );
-
-  if (shouldStop || jobQueue.length === 0) {
-    log(`Finalizing run as ${shouldStop ? "STOPPED" : "COMPLETED"}.`);
-    await clearSession();
-    await reportRunComplete(runId, shouldStop ? "STOPPED" : "COMPLETED");
-    return;
-  }
-
-  const nextUrl = jobQueue[0];
-  const jobId = extractJobId(nextUrl);
-
-  if (!jobId) {
-    const remaining = jobQueue.slice(1);
-    if (remaining.length === 0) {
+  if (session.mode === "detail") {
+    if (session.shouldStop) {
+      log("continueSessionRun: detail run was stopped; finalizing.");
       await clearSession();
-      await reportRunComplete(runId, "COMPLETED");
-    } else {
-      await saveSession({ ...session, jobQueue: remaining });
-      window.location.href = remaining[0];
-    }
-    return;
-  }
-
-  // Are we on the target job? Accept any of Handshake's URL forms for the id —
-  // crucially /job-search/<id>, because external-apply jobs redirect /jobs/<id>
-  // there, and the master-detail panel renders the job fine for us to process.
-  const onTarget =
-    window.location.href.includes(`/jobs/${jobId}`) ||
-    window.location.href.includes(`/postings/${jobId}`) ||
-    window.location.href.includes(`/job-search/${jobId}`);
-
-  if (!onTarget) {
-    const attempts = (session.navAttempts ?? 0) + 1;
-    // Backstop: if navigating to this job never lands on it (a redirect bounces
-    // us elsewhere), don't retry forever — skip it and move on.
-    if (attempts > 2) {
-      warn(
-        `Navigated toward job ${jobId} ${attempts - 1}x without landing on it — ` +
-          `likely a redirect (e.g. an external-apply listing). Skipping to avoid an infinite loop.`
-      );
-      const skip: JobResult = {
-        handshakeJobId: jobId,
-        jobUrl: nextUrl,
-        title: "Unknown Title",
-        company: "Unknown Company",
-        status: "SKIPPED",
-        skipReason: "APPLY_EXTERNALLY"
-      };
-      const shouldContinue = await reportJobResult(runId, skip);
-      const remaining = jobQueue.slice(1);
-      if (!shouldContinue || remaining.length === 0) {
-        await clearSession();
-        await reportRunComplete(runId, !shouldContinue ? "STOPPED" : "COMPLETED");
-        return;
-      }
-      await saveSession({ ...session, jobQueue: remaining, navAttempts: 0 });
-      await sleep(settings.applyDelayMs);
-      window.location.href = remaining[0];
+      await reportRunComplete(session.runId, "STOPPED");
       return;
     }
-    log(`Not on target job ${jobId} yet (attempt ${attempts}); navigating →`, nextUrl);
-    await saveSession({ ...session, navAttempts: attempts });
-    window.location.href = nextUrl;
+    if (!isOnJobDetailPage()) {
+      log("continueSessionRun: detail session present but current page is not a job detail — clearing.");
+      await clearSession();
+      await reportRunComplete(session.runId, "FAILED", "Detail run resumed away from a job detail page.");
+      return;
+    }
+    if (session.screening) screeningPrefs = session.screening;
+    setTimeout(() => void runCurrentDetailOnce(session.runId, session.settings), 400);
     return;
   }
 
-  // Arrived — reset the attempt counter so the next job starts fresh.
-  if (session.navAttempts) {
-    await saveSession({ ...session, navAttempts: 0 });
-  }
-
-  // Wait for the job detail to hydrate before reading the DOM — resolves as soon
-  // as the apply control / job title appears rather than after a fixed 1500ms.
-  log(`On target job ${jobId}; waiting for the detail to hydrate then processing.`);
-  await waitForJobDetailReady(6000);
-
-  const result = await processCurrentJobPage(nextUrl);
-  log("job result", result);
-  const shouldContinue = await reportJobResult(runId, result);
-  log("background says shouldContinue =", shouldContinue);
-
-  const remaining = jobQueue.slice(1);
-
-  if (!shouldContinue || session.shouldStop) {
-    await clearSession();
-    await reportRunComplete(runId, "STOPPED");
-    return;
-  }
-
-  if (remaining.length === 0) {
-    await clearSession();
-    await reportRunComplete(runId, "COMPLETED");
-    return;
-  }
-
-  await saveSession({ ...session, jobQueue: remaining });
-  await sleep(settings.applyDelayMs);
-  window.location.href = remaining[0];
+  warn("continueSessionRun: removing stale legacy queue session.");
+  await clearSession();
+  await reportRunComplete(session.runId, "FAILED", "Removed stale legacy queue session.");
 }
 
 // ─── In-place list walker ────────────────────────────────────────────────────
@@ -971,6 +927,17 @@ async function continueSessionRun(): Promise<void> {
 // so it doesn't use the session-storage queue; Stop is a module-level flag.
 
 let inPlaceStop = false;
+
+// Per-page-context singleton for the run orchestration. The background worker
+// also rejects a start while a run is active, but its state lives in the MV3
+// service worker, which Chrome recycles freely — when it does, that guard is lost
+// while this tab's walker keeps running, so a fresh Start would wave through. The
+// durable guard therefore has to live here, in the tab. Held by runListInPlace
+// for the duration of a walk and checked before starting another, so a duplicate
+// start-run (or a duplicate content-script injection) can't spin up a second
+// walker that fights the first over the same DOM: double card-selects, double
+// pagination, and clobbered session progress.
+let runLoopActive = false;
 
 interface JobCard {
   id: string;
@@ -1473,8 +1440,13 @@ async function goToNextPage(): Promise<boolean> {
   }, 8000);
 
   if (!isJobSearchUrl()) {
+    // The pager click navigated us off the search page (e.g. a stray link opened a
+    // job detail). Do NOT force window.location back to the list: a hard reload
+    // here is exactly the jarring "page restart" this in-place walk exists to
+    // avoid, and because a list run resumes itself from session storage, the
+    // reloaded page would re-enter the walk and could loop. End this page's walk
+    // gracefully instead and let the caller finalize the run.
     dumpWalker("next-page-left-search", { from: beforeUrl, to: window.location.href });
-    window.location.href = beforeUrl;
     return false;
   }
 
@@ -1502,7 +1474,29 @@ function dumpWalker(event: string, payload: Record<string, unknown>): void {
     .catch(() => {});
 }
 
+// Public entry for the in-place walker. Enforces the run-loop singleton (see
+// runLoopActive): if a walk is already running in this context we ignore the
+// duplicate start rather than launch a second walker against the same list. The
+// flag is released in finally so an unexpected throw can't wedge it true and
+// block every future run. The actual walk lives in runListInPlaceWalk.
 async function runListInPlace(
+  runId: string,
+  settings: Settings,
+  resume?: { seenIds: string[]; processed: number; startPage?: number }
+): Promise<void> {
+  if (runLoopActive) {
+    warn("runListInPlace: a walker is already active in this context; ignoring duplicate start.");
+    return;
+  }
+  runLoopActive = true;
+  try {
+    await runListInPlaceWalk(runId, settings, resume);
+  } finally {
+    runLoopActive = false;
+  }
+}
+
+async function runListInPlaceWalk(
   runId: string,
   settings: Settings,
   resume?: { seenIds: string[]; processed: number; startPage?: number }
@@ -1668,7 +1662,28 @@ async function runListInPlace(
           return;
         }
       } catch (err) {
+        const errorMessage =
+          err instanceof Error ? err.message : "Unexpected error processing job card.";
         warn(`error processing card ${card.id}`, err);
+        processed++;
+        await persistListProgress(seen, processed);
+        const { company } = extractJobMeta();
+        const shouldContinue = await reportJobResult(runId, {
+          handshakeJobId: card.id,
+          jobUrl: window.location.href,
+          title: card.title.slice(0, 80) || "Unknown Title",
+          company,
+          status: "FAILED",
+          errorMessage
+        });
+        dismissOpenDialog();
+        if (!shouldContinue) {
+          dumpWalker("background-stop-after-error", { processed, lastJob: card.id, errorMessage });
+          await clearSession();
+          await reportRunComplete(runId, "STOPPED");
+          return;
+        }
+        await sleep(300);
       }
     }
   }
@@ -1782,21 +1797,78 @@ function findSubmitOrConfirm(): HTMLButtonElement | null {
   ]);
 }
 
-// True once the application appears to have gone through: the apply modal/dialog
-// closed (no submit button left), the page now shows an applied state, or a
-// success message rendered.
-function applicationLooksSubmitted(): boolean {
-  if (isAlreadyApplied()) return true;
-  if (findShortTextEl(/application submitted|successfully applied|you have applied|applied to|application sent/i, 90))
+// True once the application has actually gone through. The DECISIVE signal is the
+// apply modal itself: while it's open with an ENABLED Submit/Confirm button the
+// application is NOT submitted — no matter what "applied"-looking text sits on the
+// page behind it (a previously-applied job card, an "N applied to this job" blurb,
+// the search-result count). Trusting that stray page text was the bug: it made
+// clickSubmitAndConfirm conclude the application was already in and SKIP clicking
+// Submit, recording APPLIED for applications still sitting in a filled, open modal
+// (the cover-letter PDF attached but never submitted). The two positive checks are
+// now scoped to the modal so background text can't trip them.
+function applicationLooksSubmitted(allowModalClosedSuccess = false): boolean {
+  const modal = findApplyModalRoot();
+  const submit = findSubmitOrConfirm();
+
+  // Positive confirmation, scoped to the modal when one is open. If the modal is
+  // gone, body-level success text only counts after a submit/confirm click; before
+  // that, it could be a stale toast or unrelated page text.
+  const scope = modal ?? document.body;
+  if (
+    (modal || allowModalClosedSuccess) &&
+    findShortTextEl(
+      /application submitted|successfully applied|you have applied|application sent|application received|thanks for applying|your application (?:has been |was )?(?:submitted|sent|received)/i,
+      90,
+      scope
+    )
+  )
     return true;
-  const applyModal = findApplyModalRoot();
-  if (!applyModal && !findSubmitOrConfirm()) return true;
+  if (
+    modal &&
+    (modal.querySelector(
+      '[data-hook="applied-badge"],[aria-label="Applied"],[class*="applied-badge" i]'
+    ) ||
+      buttonByTextWithin(modal, ["applied", "application submitted", "withdraw application"]))
+  )
+    return true;
+
+  // Open modal with an actionable submit/confirm → not submitted yet. This check
+  // intentionally comes AFTER the scoped applied/withdraw checks above: Handshake
+  // can render "Applied on <date> / Withdraw application" inside the apply modal
+  // while still leaving a Submit button enabled. In that state, clicking Submit
+  // triggers "User cannot have multiple open applications on the same job."
+  if (modal && submit && !submit.disabled) return false;
+
+  // The apply modal has closed and no submit/confirm control remains → the flow
+  // finished, but only after this submit helper actually clicked a submit/confirm
+  // control. Before the click, "no modal and no submit" can also mean our apply
+  // modal selector missed Handshake's DOM, or the modal never opened; counting that
+  // as success would create a false APPLIED record.
+  if (allowModalClosedSuccess && !modal && !submit) return true;
+
   return false;
 }
 
 function visibleSnippet(el: HTMLElement | null, max = 220): string | null {
   const text = (el?.innerText ?? el?.textContent ?? "").replace(/\s+/g, " ").trim();
   return text ? text.slice(0, max) : null;
+}
+
+// Handshake rejects a second application to a job the user already has an OPEN
+// application for, surfacing a top-level toast: "User cannot have multiple open
+// applications on the same job." It renders OUTSIDE the apply modal, so the
+// modal-scoped applicationLooksSubmitted()/submitBlockingMessages() never see it —
+// and clickSubmitAndConfirm would otherwise keep clicking Submit, each click
+// stacking another error toast. Seeing it means an application already exists, so
+// callers stop and record the job as already-applied instead of retrying.
+function duplicateApplicationError(): boolean {
+  const re =
+    /multiple open applications|already have an open application|you (?:have )?already applied|already applied to this|application already exists/i;
+  const alerts = Array.from(
+    document.querySelectorAll<HTMLElement>('[role="alert"],[aria-live]')
+  );
+  if (alerts.some((el) => re.test(el.textContent ?? ""))) return true;
+  return !!findShortTextEl(re, 200);
 }
 
 function submitBlockingMessages(): string[] {
@@ -1812,15 +1884,32 @@ function submitBlockingMessages(): string[] {
   const messages = Array.from(dialog.querySelectorAll<HTMLElement>(selectors))
     .map((el) => visibleSnippet(el, 180))
     .filter((text): text is string => !!text);
+  // Handshake's submit-rejection toasts (e.g. "multiple open applications")
+  // render OUTSIDE the modal, so also sweep top-level alert/live regions when a
+  // modal is open — otherwise the decisive error never reaches backend.log.
+  if (dialog !== document.body) {
+    for (const el of Array.from(
+      document.querySelectorAll<HTMLElement>('[role="alert"],[aria-live]')
+    )) {
+      const text = visibleSnippet(el, 180);
+      if (text) messages.push(text);
+    }
+  }
   return Array.from(new Set(messages)).slice(0, 8);
 }
 
-function dumpSubmitState(label: string, submitted: boolean, clicked: boolean): void {
+function dumpSubmitState(
+  label: string,
+  submitted: boolean,
+  clicked: boolean,
+  duplicate = false
+): void {
   const applyModal = findApplyModalRoot();
   const payload = {
     label,
     submitted,
     clicked,
+    duplicateApplication: duplicate,
     url: window.location.href,
     applyModalPresent: !!applyModal,
     dialogs: Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"],[aria-modal="true"]'))
@@ -1845,12 +1934,18 @@ function dumpSubmitState(label: string, submitted: boolean, clicked: boolean): v
 // confirmation step ("Submit"/"Confirm") after the first click — so we wait for an
 // enabled submit, click it, then re-query and click any remaining enabled
 // submit/confirm button a couple more times, stopping as soon as the modal closes.
-// Returns true ONLY if the application actually went through (the modal closed /
-// the page shows an applied state) — NOT merely if we clicked an enabled Submit.
+// Returns "submitted" ONLY if the application actually went through (the modal
+// closed after a submit click, or a scoped success/applied state appeared) — NOT
+// merely if we clicked an enabled Submit.
 // Clicking alone produced false "applied" records: Handshake can re-validate
 // after the click and re-disable Submit (e.g. a document still finishing), leaving
 // the modal open. Dumps the post-submit DOM for diagnosis.
-async function clickSubmitAndConfirm(label: string): Promise<boolean> {
+// "submitted" — the application went through. "duplicate" — Handshake already
+// has an open application for this job (already applied; do NOT keep clicking).
+// "incomplete" — we clicked Submit but it never completed (an unmet field).
+type SubmitOutcome = "submitted" | "duplicate" | "incomplete";
+
+async function clickSubmitAndConfirm(label: string): Promise<SubmitOutcome> {
   let everClicked = false;
 
   for (let attempt = 0; attempt < 4; attempt++) {
@@ -1859,10 +1954,24 @@ async function clickSubmitAndConfirm(label: string): Promise<boolean> {
     // Handshake enables Submit.
     await waitFor(() => {
       const b = findSubmitOrConfirm();
-      return applicationLooksSubmitted() || (!!b && !b.disabled);
+      return applicationLooksSubmitted(everClicked) || duplicateApplicationError() || (!!b && !b.disabled);
     }, attempt === 0 ? 20000 : 6000);
 
-    if (applicationLooksSubmitted()) {
+    // An application already exists for this job. Clicking Submit again only
+    // stacks more "multiple open applications" error toasts, so stop here and
+    // report it as already-applied rather than retrying.
+    if (duplicateApplicationError()) {
+      log(`[${label}] Handshake reports an existing open application for this job — already applied; not resubmitting.`);
+      dumpSubmitState(label, false, everClicked, true);
+      return "duplicate";
+    }
+
+    if (applicationLooksSubmitted(everClicked)) {
+      if (!everClicked) {
+        log(`[${label}] Handshake already shows an applied/open application state; not clicking Submit.`);
+        dumpSubmitState(label, false, everClicked, true);
+        return "duplicate";
+      }
       log(`[${label}] application appears submitted before another click was needed.`);
       break;
     }
@@ -1874,26 +1983,40 @@ async function clickSubmitAndConfirm(label: string): Promise<boolean> {
     btn.click();
     everClicked = true;
     // Handshake can accept the click, disable Submit while it finalizes, then
-    // close the modal several seconds later. Wait for that settled state instead
-    // of treating the immediate disabled button as a failed application.
-    await waitFor(() => applicationLooksSubmitted(), attempt === 0 ? 12000 : 8000);
+    // close the modal several seconds later. Wait for that settled state (or a
+    // duplicate-application rejection) instead of treating the immediate disabled
+    // button as a failed application.
+    await waitFor(
+      () => applicationLooksSubmitted(everClicked) || duplicateApplicationError(),
+      attempt === 0 ? 12000 : 8000
+    );
 
-    if (applicationLooksSubmitted()) {
+    if (duplicateApplicationError()) {
+      log(`[${label}] "multiple open applications" rejection after clicking Submit — already applied; stopping.`);
+      dumpSubmitState(label, false, everClicked, true);
+      return "duplicate";
+    }
+    if (applicationLooksSubmitted(everClicked)) {
       log(`[${label}] application appears submitted (modal closed / applied state).`);
       break;
     }
   }
 
-  if (everClicked && !applicationLooksSubmitted()) {
-    await waitFor(() => applicationLooksSubmitted(), 8000);
+  if (everClicked && !applicationLooksSubmitted(everClicked)) {
+    await waitFor(() => applicationLooksSubmitted(everClicked) || duplicateApplicationError(), 8000);
+    if (duplicateApplicationError()) {
+      log(`[${label}] "multiple open applications" rejection observed while settling — already applied.`);
+      dumpSubmitState(label, false, everClicked, true);
+      return "duplicate";
+    }
   }
 
-  const submitted = applicationLooksSubmitted();
+  const submitted = applicationLooksSubmitted(everClicked);
   if (everClicked && !submitted) {
     warn(`[${label}] clicked Submit but the application did not complete (modal still open / Submit re-disabled).`);
   }
-  dumpSubmitState(label, submitted, everClicked);
-  return submitted;
+  dumpSubmitState(label, submitted, everClicked, false);
+  return submitted ? "submitted" : "incomplete";
 }
 
 interface AttachResult {
@@ -2465,8 +2588,13 @@ async function handleCoverLetterRequest(
     return { ...base, status: "SKIPPED", skipReason: "COVER_LETTER_FAILED" };
   }
 
-  const submitted = await clickSubmitAndConfirm("cover-letter");
-  if (!submitted) {
+  const outcome = await clickSubmitAndConfirm("cover-letter");
+  if (outcome === "duplicate") {
+    warn("Handshake already has an open application for this job — recording as already applied, not resubmitting.");
+    dismissOpenDialog();
+    return { ...base, status: "SKIPPED", skipReason: "ALREADY_APPLIED" };
+  }
+  if (outcome === "incomplete") {
     warn("Cover letter accepted but Submit never completed — other required fields remain.");
     dumpUploadWidgets("submit-stayed-disabled");
     return { ...base, status: "SKIPPED", skipReason: "SUBMIT_INCOMPLETE" };
@@ -3102,8 +3230,13 @@ async function handleOtherDocsAgent(
     return { ...base, status: "SKIPPED", skipReason: "OTHER_DOCS_UPLOAD_FAILED" };
   }
 
-  const submitted = await clickSubmitAndConfirm("other-docs");
-  if (!submitted) {
+  const outcome = await clickSubmitAndConfirm("other-docs");
+  if (outcome === "duplicate") {
+    warn("Handshake already has an open application for this job — recording as already applied.");
+    dismissOpenDialog();
+    return { ...base, status: "SKIPPED", skipReason: "ALREADY_APPLIED" };
+  }
+  if (outcome === "incomplete") {
     warn("Document accepted but Submit never completed — other required fields remain.");
     return { ...base, status: "SKIPPED", skipReason: "SUBMIT_INCOMPLETE" };
   }
@@ -3173,11 +3306,30 @@ async function handleOtherRequiredDocs(
 
 const pageSupport = inferPageSupport(window.location.href);
 
+async function handleStatus(): Promise<ContentResponse> {
+  const session = await getSession();
+  const activeRunId = session && !session.shouldStop ? session.runId : null;
+  return {
+    ok: true,
+    activeRunId,
+    runActive: runLoopActive || !!activeRunId
+  };
+}
+
 async function handleStartRun(
   runId: string,
   settings: Settings,
   screening: ScreeningPrefs
 ): Promise<ContentResponse> {
+  // Refuse a second run while one is already walking this tab. The background
+  // guards this too, but its guard lives in the recyclable MV3 service worker;
+  // once that's been recycled it can wave a duplicate start through, so we
+  // re-check here BEFORE resetting session state or spawning another walker.
+  if (runLoopActive) {
+    warn(`handleStartRun: a run is already active in this tab; refusing duplicate start (runId ${runId}).`);
+    return { ok: false, error: "A run is already active in this tab." };
+  }
+
   screeningPrefs = screening; // answers used by answerScreeningQuestions() this run
   group(`handleStartRun runId=${runId}`);
   log("url", window.location.href);
@@ -3193,12 +3345,13 @@ async function handleStartRun(
 
   // If already on a job detail page, queue just that one job
   if (isOnJobDetailPage()) {
-    log("On a job detail page — queueing this single job.");
+    log("On a job detail page — processing this single job without queue navigation.");
     const session: RunSession = {
       runId,
       settings,
-      jobQueue: [window.location.href.split("?")[0]],
-      shouldStop: false
+      shouldStop: false,
+      mode: "detail",
+      screening: screeningPrefs
     };
     await saveSession(session);
     // Process immediately after sending the response
@@ -3220,11 +3373,10 @@ async function handleStartRun(
   otherDocsRemembered = null; // fresh prompt decisions each run
   // Persist a "list" session so the walker can resume the SAME run if Handshake
   // hard-reloads the search page mid-walk (otherwise it restarts from the top and
-  // re-applies). jobQueue is unused in list mode.
+  // re-applies).
   await saveSession({
     runId,
     settings,
-    jobQueue: [],
     shouldStop: false,
     mode: "list",
     screening: screeningPrefs,
@@ -3248,40 +3400,59 @@ async function handleStopRun(): Promise<ContentResponse> {
   return { ok: true, pageSupport, discoveredJobCount: 0 };
 }
 
-chrome.runtime.onMessage.addListener((message: ContentMessage, _sender, sendResponse) => {
-  void (async () => {
-    switch (message.type) {
-      case "content/start-run":
-        sendResponse(await handleStartRun(message.runId, message.settings, message.screening));
-        return;
+// Guard against duplicate injection. All content scripts in a frame share one
+// isolated-world global, so a flag on `window` is visible across injections (a
+// module-level `let` would not be — each injection gets its own scope). If the
+// script is injected twice into the same page (e.g. an extension reload while a
+// Handshake tab is open), the second instance must NOT register a second
+// onMessage listener (that double-handles every message, double-firing
+// handleStartRun) or kick off a second continueSessionRun resume.
+const haaWindow = window as typeof window & { __haaContentInitialized?: boolean };
 
-      case "content/stop-run":
-        sendResponse(await handleStopRun());
-        return;
+if (haaWindow.__haaContentInitialized) {
+  log("Duplicate content-script injection in this frame; skipping listener + resume re-init.");
+} else {
+  haaWindow.__haaContentInitialized = true;
 
-      case "content/scrape-job":
-        sendResponse({ ok: true, job: scrapeJobContext() });
-        return;
+  chrome.runtime.onMessage.addListener((message: ContentMessage, _sender, sendResponse) => {
+    void (async () => {
+      switch (message.type) {
+        case "content/status":
+          sendResponse(await handleStatus());
+          return;
 
-      case "content/attach-cover-letter":
-        sendResponse({
-          ok: true,
-          attach: await attachCoverLetterAndSubmit(message.pdfBase64, message.filename)
-        });
-        return;
+        case "content/start-run":
+          sendResponse(await handleStartRun(message.runId, message.settings, message.screening));
+          return;
 
-      default:
-        sendResponse({ ok: false, error: "Unknown content message" } satisfies ContentResponse);
-    }
-  })();
-  return true;
-});
+        case "content/stop-run":
+          sendResponse(await handleStopRun());
+          return;
 
-// On every page load, resume any in-progress run
-void continueSessionRun();
+        case "content/scrape-job":
+          sendResponse({ ok: true, job: scrapeJobContext() });
+          return;
 
-log("HandShook content script loaded", {
-  url: window.location.href,
-  pageSupport,
-  isOnJobDetailPage: isOnJobDetailPage()
-});
+        case "content/attach-cover-letter":
+          sendResponse({
+            ok: true,
+            attach: await attachCoverLetterAndSubmit(message.pdfBase64, message.filename)
+          });
+          return;
+
+        default:
+          sendResponse({ ok: false, error: "Unknown content message" } satisfies ContentResponse);
+      }
+    })();
+    return true;
+  });
+
+  // On every page load, resume any in-progress run
+  void continueSessionRun();
+
+  log("HandShook content script loaded", {
+    url: window.location.href,
+    pageSupport,
+    isOnJobDetailPage: isOnJobDetailPage()
+  });
+}

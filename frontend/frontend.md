@@ -219,7 +219,6 @@ The next frontend increments should happen in this order:
 - Wire:
   - `GET /api/health`
   - `GET /api/settings`
-  - `PUT /api/settings`
 - Replace the placeholder backend panel with live data
 
 ### 2. Background Run Orchestration

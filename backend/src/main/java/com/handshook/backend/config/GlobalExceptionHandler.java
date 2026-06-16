@@ -16,9 +16,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * previously surfaced as bare 500s with nothing in the log) and the extension
  * receives a structured JSON body it can show instead of an opaque error.
  *
- * The dedicated validation handler keeps bean-validation failures (e.g.
- * applyDelayMs &lt; 1000 on PUT /api/settings) at HTTP 400 — without it, the
- * catch-all below would otherwise downgrade them to 500.
+ * The dedicated validation handler keeps bean-validation failures at HTTP 400 —
+ * without it, the catch-all below would otherwise downgrade them to 500.
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {

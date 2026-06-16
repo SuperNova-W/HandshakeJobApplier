@@ -22,14 +22,4 @@ public class SettingsService {
             )
         );
     }
-
-    public SettingsDto updateSettings(UpdateSettingsRequest request) {
-        jdbcTemplate.update(
-            "UPDATE settings SET apply_delay_ms = ?, max_pages_per_run = ?, stop_on_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
-            request.applyDelayMs(),
-            request.maxPagesPerRun(),
-            request.stopOnError() ? 1 : 0
-        );
-        return getSettings();
-    }
 }

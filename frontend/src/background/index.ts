@@ -11,7 +11,8 @@ import {
   getSettings,
   otherDocPdfBase64,
   recordApplication,
-  sendClientLog
+  sendClientLog,
+  checkDuplicate
 } from "../shared/backendApi";
 import {
   createInitialRuntimeState,
@@ -135,6 +136,24 @@ async function startRun(): Promise<ExtensionResponse> {
   }
 
   const activeTab = await getActiveHandshakeTab();
+
+  try {
+    const status = await sendContentMessage(activeTab.id, { type: "content/status" });
+    if (status.ok && "runActive" in status && status.runActive) {
+      runtimeState.runStatus = "RUNNING";
+      runtimeState.runId = status.activeRunId;
+      runtimeState.tabId = activeTab.id;
+      runtimeState.sourceUrl = activeTab.url;
+      runtimeState.lastError = "A run is already active in this tab.";
+      return { ok: false, error: runtimeState.lastError };
+    }
+  } catch {
+    // If the content script is not reachable, the normal start path below will
+    // surface the clearer sendContentMessage error after the backend run is
+    // created/finalized. Avoid turning this preflight into a separate failure
+    // mode while users are reloading the extension during development.
+  }
+
   await refreshBackendState();
   log("startRun: backend health =", runtimeState.backendHealth);
 
@@ -225,6 +244,19 @@ async function startRun(): Promise<ExtensionResponse> {
 
 async function stopRun(): Promise<ExtensionResponse> {
   if (runtimeState.runStatus !== "RUNNING" || !runtimeState.runId) {
+    // MV3 service workers are ephemeral. If Chrome recycled us mid-run, the
+    // content script may still have a persisted session and active walker even
+    // though runtimeState is back to IDLE. Best-effort relay Stop to the active
+    // Handshake tab so the tab-local session can mark itself stopped and
+    // finalize the backend run it still knows about.
+    try {
+      const activeTab = await getActiveHandshakeTab();
+      await sendContentMessage(activeTab.id, { type: "content/stop-run" });
+      runtimeState.lastError = null;
+    } catch (err) {
+      runtimeState.lastError =
+        err instanceof Error ? err.message : "No active run found to stop.";
+    }
     runtimeState.runStatus = "STOPPED";
     return { ok: true, state: runtimeState };
   }
@@ -405,6 +437,18 @@ async function getDocument(docType: DocumentType): Promise<ExtensionResponse> {
   }
 }
 
+async function checkDuplicateApplication(handshakeJobId: string): Promise<ExtensionResponse> {
+  try {
+    const result = await checkDuplicate(handshakeJobId);
+    return { ok: true, duplicate: result.exists };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Duplicate check failed."
+    };
+  }
+}
+
 async function handleJobProcessed(
   runId: string,
   result: JobResult
@@ -428,7 +472,15 @@ async function handleJobProcessed(
   else if (result.status === "SKIPPED") runtimeState.skippedCount++;
   else if (result.status === "FAILED") runtimeState.failedCount++;
 
-  void recordApplication(runId, result).catch(() => {});
+  try {
+    await recordApplication(runId, result);
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Failed to record application outcome.";
+    runtimeState.lastError = message;
+    runtimeState.runStatus = "STOPPING";
+    return { ok: true, shouldStop: true };
+  }
 
   const shouldStop =
     runtimeState.runStatus === "STOPPING" ||
@@ -446,16 +498,41 @@ async function handleRunComplete(
   finalStatus: Exclude<RunStatus, "RUNNING">,
   errorMessage?: string | null
 ): Promise<ExtensionResponse> {
+  // If the MV3 worker was recycled after the last job result but before the
+  // content script reported completion, runtimeState.runId is null. Adopt the
+  // run long enough to finalize it; otherwise the backend row stays RUNNING
+  // forever even though the tab completed the walk.
+  if (runtimeState.runId === null) {
+    log("handleRunComplete: adopting run after lost SW state", runId);
+    runtimeState.runId = runId;
+  }
+
   if (runtimeState.runId === runId) {
     runtimeState.runStatus = finalStatus;
+    runtimeState.lastError = errorMessage ?? null;
 
     try {
       await finalizeRun(runId, finalStatus, errorMessage ?? null);
     } catch (err) {
       runtimeState.lastError =
         err instanceof Error ? err.message : "Failed to finalize run.";
+    } finally {
+      try {
+        runtimeState.recentRuns = await getRecentRuns(5);
+      } catch {
+        /* ignore */
+      }
+      runtimeState.runId = null;
+      runtimeState.tabId = null;
+      runtimeState.sourceUrl = null;
+      runtimeState.startedAt = null;
     }
-
+  } else {
+    log("handleRunComplete: ignoring completion for stale run", {
+      activeRunId: runtimeState.runId,
+      completedRunId: runId,
+      finalStatus
+    });
     try {
       runtimeState.recentRuns = await getRecentRuns(5);
     } catch {
@@ -502,6 +579,10 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendRes
 
         case "runtime/attach-cover-letter":
           respond(sendResponse, await attachCoverLetter(message.coverLetter));
+          return;
+
+        case "runtime/check-duplicate":
+          respond(sendResponse, await checkDuplicateApplication(message.handshakeJobId));
           return;
 
         case "runtime/get-document": {

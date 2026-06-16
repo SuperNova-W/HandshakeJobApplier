@@ -8,7 +8,6 @@ import type {
   JobContext,
   JobResult,
   OtherDocsResult,
-  ResumeState,
   RunStatus,
   RunSummary,
   ScreeningPrefs,
@@ -87,17 +86,6 @@ export function checkDuplicate(handshakeJobId: string) {
   return requestJson<{ exists: boolean }>(
     `/api/applications/exists?handshakeJobId=${encodeURIComponent(handshakeJobId)}`
   );
-}
-
-export function getResume() {
-  return requestJson<ResumeState>("/api/content/resume");
-}
-
-export function saveResume(resumeText: string) {
-  return requestJson<ResumeState>("/api/content/resume", {
-    method: "PUT",
-    body: JSON.stringify({ resumeText })
-  });
 }
 
 export function getScreeningPrefs() {

@@ -7,10 +7,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 /**
- * Stores user-provided content (the resume text and screening-question answers)
- * in single-row tables. Used as context for the cover-letter generator and to
- * auto-answer Handshake screening questions; editable from the extension's
- * options page.
+ * Stores user-provided content in single-row tables. Screening-question answers
+ * are editable from the extension's options page; resume text is retained only
+ * as a fallback for existing local databases when no uploaded resume can be
+ * extracted.
  */
 @Service
 public class ContentService {
@@ -23,26 +23,12 @@ public class ContentService {
         this.objectMapper = objectMapper;
     }
 
-    public ResumeDto getResume() {
-        String text = getResumeText();
-        return new ResumeDto(text == null ? "" : text, text != null && !text.isBlank());
-    }
-
     /** Raw resume text (may be null/blank if the user hasn't set one yet). */
     public String getResumeText() {
         return jdbcTemplate.queryForObject(
             "SELECT resume_text FROM user_content WHERE id = 1",
             String.class
         );
-    }
-
-    public ResumeDto updateResume(UpdateResumeRequest request) {
-        String text = request.resumeText() == null ? "" : request.resumeText().trim();
-        jdbcTemplate.update(
-            "UPDATE user_content SET resume_text = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
-            text.isBlank() ? null : text
-        );
-        return getResume();
     }
 
     // ─── Screening-question answers ──────────────────────────────────────────

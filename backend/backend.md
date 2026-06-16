@@ -142,18 +142,27 @@ asks for ("other required documents") when the bot can't auto-fill it.
 label) to feed the multi-document `OTHER` slot into the agent. `DocumentTextExtractor`
 is a shared bean so the extraction logic lives in one place.
 
-## Not Implemented Yet
+## Current API Surface
 
-- `settings` table
-- `application_runs` table
-- `applications` table
+- `GET /api/health`
 - `GET /api/settings`
-- `PUT /api/settings`
 - `POST /api/runs`
-- `POST /api/runs/{runId}/applications`
 - `PATCH /api/runs/{runId}`
 - `GET /api/runs`
-- duplicate preflight endpoint
+- `POST /api/runs/{runId}/applications`
+- `GET /api/applications/exists`
+- `GET /api/content/screening`
+- `PUT /api/content/screening`
+- `GET /api/documents`
+- `POST /api/documents`
+- `GET /api/documents/{id}/content`
+- `GET /api/documents/by-type/{docType}/content`
+- `DELETE /api/documents/{id}`
+- `POST /api/cover-letter`
+- `POST /api/cover-letter/pdf`
+- `POST /api/other-docs/generate`
+- `POST /api/other-docs/pdf`
+- `POST /api/debug/client-log`
 
 ## Local Run Notes
 
@@ -171,17 +180,6 @@ Expected local address:
 ```text
 http://127.0.0.1:8765/api/health
 ```
-
-## Recommended Next Backend Increment
-
-Build the first real API surface next:
-
-1. Add a settings module on top of the `settings` table.
-2. Implement:
-   - `GET /api/settings`
-   - `PUT /api/settings`
-3. Add request/response DTOs and validation.
-4. Keep persistence simple at first, likely with `JdbcTemplate`.
 
 ## Design Rules
 

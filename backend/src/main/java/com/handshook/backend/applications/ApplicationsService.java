@@ -38,7 +38,15 @@ public class ApplicationsService {
 
     public boolean checkExists(String handshakeJobId) {
         Integer count = jdbcTemplate.queryForObject(
-            "SELECT COUNT(*) FROM applications WHERE handshake_job_id = ? AND status = 'APPLIED'",
+            """
+            SELECT COUNT(*)
+            FROM applications
+            WHERE handshake_job_id = ?
+              AND (
+                status = 'APPLIED'
+                OR skip_reason IN ('ALREADY_APPLIED', 'SUBMIT_INCOMPLETE')
+              )
+            """,
             Integer.class,
             handshakeJobId
         );

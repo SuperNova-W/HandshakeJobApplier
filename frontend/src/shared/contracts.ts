@@ -120,11 +120,6 @@ export interface OtherDocsResult {
   sources: string[];
 }
 
-export interface ResumeState {
-  resumeText: string;
-  hasResume: boolean;
-}
-
 // The user's stored answers to common Handshake screening questions, used by the
 // content script to fill Yes/No radios instead of skipping the job.
 // `relocateAnywhere` makes any location question answer "Yes"; otherwise a
@@ -172,6 +167,7 @@ export type ExtensionMessage =
   | { type: "runtime/stop" }
   | { type: "runtime/generate-cover-letter" }
   | { type: "runtime/attach-cover-letter"; coverLetter: string }
+  | { type: "runtime/check-duplicate"; handshakeJobId: string }
   // Sent from the content script mid-run to fetch a stored document (e.g. the
   // user's transcript) by type — the background worker proxies the backend call
   // because content scripts are blocked by CORS.
@@ -206,6 +202,7 @@ export type ExtensionMessage =
   | { type: "content/debug-log"; label: string; payload: unknown };
 
 export type ContentMessage =
+  | { type: "content/status" }
   | {
       type: "content/start-run";
       runId: string;
@@ -217,6 +214,11 @@ export type ContentMessage =
   | { type: "content/attach-cover-letter"; pdfBase64: string; filename: string };
 
 export type ContentResponse =
+  | {
+      ok: true;
+      activeRunId: string | null;
+      runActive: boolean;
+    }
   | {
       ok: true;
       pageSupport: PageSupportStatus;
@@ -233,6 +235,7 @@ export type ExtensionResponse =
   // The RAG agent's drafted document, ready for the in-page review overlay.
   | { ok: true; otherDoc: OtherDocsResult }
   | { ok: true; attach: AttachResult }
+  | { ok: true; duplicate: boolean }
   // `document` is null when no document of the requested type is stored.
   | { ok: true; document: StoredDocument | null }
   // A rendered PDF (base64) ready to drop into the apply modal — used by both the
