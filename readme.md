@@ -3,8 +3,8 @@
 HandShook is a local-first Chrome Extension MV3 system that automates eligible
 native Handshake one-click job applications from the user's already-authenticated
 browser session. It combines in-browser automation, a Spring Boot companion API,
-SQLite persistence, and AI-assisted document generation while keeping credentials,
-documents, settings, and application history on the user's machine.
+MongoDB-backed persistence, and AI-assisted document generation while keeping
+Handshake credentials out of the backend entirely.
 
 Landing page: https://handshook.netlify.app/
 
@@ -13,9 +13,9 @@ Landing page: https://handshook.netlify.app/
 - Built a full-stack browser automation product with a React/TypeScript popup,
   Manifest V3 background service worker, Handshake content-script automation, and
   a Java/Spring Boot companion API.
-- Designed a privacy-preserving backend architecture that binds to
-  `127.0.0.1`, persists state in SQLite, and avoids storing Handshake
-  credentials or sending user files through the browser runtime.
+- Designed a privacy-preserving backend architecture that keeps Handshake
+  credentials in the user's logged-in browser session while persisting run
+  history, settings, documents, and job outcomes in MongoDB.
 - Implemented safe browser automation guardrails: duplicate prevention,
   user-controlled start/stop, per-job audit logging, skip reasons, screening
   preference handling, and refusal to submit external or ambiguous flows.
@@ -53,17 +53,17 @@ MV3 background service worker
 Handshake content script      Spring Boot companion API
   |                              |
   | DOM automation               v
-  |                           SQLite
+  |                           MongoDB Atlas
   |
   v
 Handshake apply flow
 ```
 
-The product backend is a local companion service by design, not a hosted cloud
-service. It binds to `127.0.0.1:8765` so the user's documents, OpenAI API key,
-settings, and application history stay on their machine. The public web presence
-is deployed separately as a static Netlify landing page, so the core product has
-no shared production database or remote credential store.
+The backend is designed to be deployable with MongoDB Atlas as the production
+persistence layer. The Chrome extension still automates from the user's
+authenticated browser tab, so Handshake credentials are never collected or stored
+by HandShook. The public web presence is deployed separately as a static Netlify
+landing page.
 
 ## Tech Stack
 
@@ -72,8 +72,8 @@ no shared production database or remote credential store.
 | Chrome extension | Manifest V3, Chrome Extension APIs, background service worker, content scripts |
 | Frontend | React 19, TypeScript 5, Vite 6, lucide-react, custom CSS design tokens |
 | Browser automation | DOM scanning, job-detail navigation, modal detection, file input attachment, run-state messaging |
-| Backend | Java 21, Spring Boot 3.4, Maven, Spring Web, JDBC, Validation, Actuator |
-| Persistence | SQLite, idempotent schema initialization, indexed duplicate checks, BLOB-backed document storage |
+| Backend | Java 21, Spring Boot 3.4, Maven, Spring Web, Validation, Actuator |
+| Persistence | MongoDB Atlas target deployment, document collections, compound indexes, document upload metadata/content storage |
 | AI/document services | OpenAI Chat Completions (`gpt-4o`) via Spring `RestClient`, Apache PDFBox, OpenPDF |
 | Ops/dev workflow | Localhost-only API, rolling file logs, Spring Actuator, health endpoint with live DB connectivity, Netlify static landing page |
 
@@ -85,8 +85,9 @@ no shared production database or remote credential store.
 - **DOM automation:** the content script discovers job cards, opens details,
   waits for hydrated UI state, detects external/already-applied jobs, answers
   supported screening questions, attaches required PDFs, and records outcomes.
-- **Safety-first persistence:** SQLite tracks run lifecycle and per-job results;
-  a partial unique index prevents duplicate successful applications across runs.
+- **Safety-first persistence:** MongoDB collections track run lifecycle and
+  per-job results; a compound unique index prevents duplicate successful
+  applications across runs.
 - **Document pipeline:** uploaded PDFs/text files are stored locally, extracted
   with PDFBox for model context, reviewed in-browser, rendered with OpenPDF, and
   attached through file inputs using browser-native `File`/`DataTransfer` APIs.
@@ -98,7 +99,7 @@ Chrome extension origin.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/api/health` | Service status, version, and live SQLite connectivity |
+| `GET` | `/api/health` | Service status, version, and live datastore connectivity |
 | `GET` | `/api/settings` | Read run controls such as delay, max pages, and stop-on-error |
 | `POST` | `/api/runs` | Create a new application run |
 | `PATCH` | `/api/runs/{runId}` | Finalize a run as completed, stopped, or failed |
@@ -113,19 +114,22 @@ Chrome extension origin.
 | `POST` | `/api/other-docs/pdf` | Render reviewed supplemental document text to PDF |
 | `POST` | `/api/debug/client-log` | Persist extension-side debug events |
 
-## Data Model
+## Target MongoDB Data Model
 
-SQLite is the source of truth for local state:
+MongoDB is the target source of truth for deployed state:
 
-- `settings`: run delay, max pages, and stop-on-error behavior.
-- `screening_prefs`: work authorization and relocation answers.
+- `settings`: run delay, max pages, stop-on-error behavior, and user-level
+  runtime preferences.
+- `screeningPrefs`: work authorization and relocation answers.
 - `documents`: resume, transcript, cover letter, GitHub project writeup, and
-  arbitrary supporting files stored as local BLOBs.
-- `application_runs`: run lifecycle, source URL, counters, and error state.
-- `applications`: per-job status, skip reason, job metadata, and raw snapshot.
+  arbitrary supporting files with metadata plus stored content or GridFS
+  references.
+- `applicationRuns`: run lifecycle, source URL, counters, and error state.
+- `applications`: per-job status, skip reason, job metadata, and raw Handshake
+  snapshot.
 
-A partial unique index on `applications(handshake_job_id) WHERE status =
-'APPLIED'` prevents duplicate successful applications across runs.
+A unique compound index on successful `applications` by Handshake job ID prevents
+duplicate applications across runs.
 
 ## Safety Features
 
@@ -134,7 +138,7 @@ A partial unique index on `applications(handshake_job_id) WHERE status =
 - Each run has a visible Stop control and delay between attempts.
 - Jobs are skipped when they are already applied, external, unsupported,
   ambiguous, incomplete, or missing required local documents.
-- Duplicate jobs are checked against SQLite before submission.
+- Duplicate jobs are checked against MongoDB before submission.
 - AI-generated documents are reviewed by the user before attachment/submission.
 - OpenAI calls happen in the backend, keeping the API key and local documents out
   of the browser runtime.
@@ -154,10 +158,12 @@ HandShook can handle application flows that ask for additional documents:
 ## Performance Snapshot
 
 Measured on June 16, 2026 against an already-running local backend on
-`127.0.0.1:8765`, using a one-off Node.js script with 50 sequential `fetch`
-requests per endpoint after 5 warm-up requests. These numbers are end-to-end
-client-observed latency for non-AI JSON endpoints on loopback; OpenAI generation
-latency depends on network/model response time and document size.
+`127.0.0.1:8765` before the MongoDB migration, using a one-off Node.js script
+with 50 sequential `fetch` requests per endpoint after 5 warm-up requests. These
+numbers are a local baseline for non-AI JSON endpoints; deployed MongoDB latency
+will depend on Atlas region, connection pooling, indexes, and network distance.
+OpenAI generation latency depends on network/model response time and document
+size.
 
 | Endpoint | Avg | p50 | p95 | Max |
 | --- | ---: | ---: | ---: | ---: |
@@ -249,9 +255,9 @@ setup. The backend package step verifies compilation and jar creation.
 
 ## Resume Bullets
 
-- Built HandShook, a local-first Chrome MV3 extension that automates eligible
+- Built HandShook, a Chrome MV3 extension that automates eligible
   Handshake one-click job applications using React, TypeScript, content scripts,
-  and a Spring Boot/SQLite companion API.
+  and a Spring Boot backend targeting MongoDB persistence.
 - Implemented a run orchestration pipeline with backend health checks, duplicate
   prevention, audited job outcomes, safe skip classifications, and user-controlled
   stop behavior.
