@@ -14,11 +14,11 @@ Landing page: https://handshook.netlify.app/
   Manifest V3 background service worker, Handshake content-script automation, and
   a Java/Spring Boot companion API.
 - Designed a privacy-preserving backend architecture that keeps Handshake
-  credentials in the user's logged-in browser session while persisting run
-  history, settings, documents, and job outcomes in MongoDB.
-- Implemented safe browser automation guardrails: duplicate prevention,
-  user-controlled start/stop, per-job audit logging, skip reasons, screening
-  preference handling, and refusal to submit external or ambiguous flows.
+  credentials in the user's logged-in browser session while persisting settings,
+  documents, and aggregate run history.
+- Implemented safe browser automation guardrails: user-controlled start/stop,
+  live run counters, screening preference handling, and refusal to submit
+  external or ambiguous flows.
 - Added AI-assisted document workflows that generate cover letters and other
   employer-requested documents server-side from stored user materials, render
   reviewed text to PDF, and attach the result in the browser.
@@ -32,8 +32,8 @@ HandShook coordinates three moving parts:
 1. The popup gives the user a control panel for backend health, page support,
    start/stop controls, live counters, settings, documents, and recent runs.
 2. The background service worker owns runtime state, calls the backend, creates
-   and finalizes runs, checks duplicates, and relays messages between popup and
-   content script.
+   and finalizes runs, updates aggregate counters, and relays messages between
+   popup and content script.
 3. The content script runs inside Handshake pages, scans job cards, opens job
    details, validates whether a job is safe to apply to, fills supported
    application requirements, and records the outcome.
@@ -84,9 +84,9 @@ is deployed separately as a static Netlify landing page.
 - **DOM automation:** the content script discovers job cards, opens details,
   waits for hydrated UI state, detects external/already-applied jobs, answers
   supported screening questions, attaches required PDFs, and records outcomes.
-- **Safety-first persistence:** MongoDB collections track run lifecycle and
-  per-job results; a compound unique index prevents duplicate successful
-  applications across runs.
+- **Lean persistence:** the backend stores aggregate run counters but no job IDs,
+  titles, companies, URLs, or per-job application history. Handshake remains the
+  source of truth for submitted applications.
 - **Document pipeline:** uploaded PDFs/text files are stored locally, extracted
   with PDFBox for model context, reviewed in-browser, rendered with OpenPDF, and
   attached through file inputs using browser-native `File`/`DataTransfer` APIs.
@@ -103,15 +103,13 @@ Chrome extension origin.
 | `POST` | `/api/runs` | Create a new application run |
 | `PATCH` | `/api/runs/{runId}` | Finalize a run as completed, stopped, or failed |
 | `GET` | `/api/runs` | Fetch recent run history for the popup |
-| `POST` | `/api/runs/{runId}/applications` | Persist each job outcome |
-| `GET` | `/api/applications/exists` | Preflight duplicate check by Handshake job ID |
+| `POST` | `/api/runs/{runId}/outcomes` | Increment an aggregate applied, skipped, or failed counter |
 | `GET` / `PUT` | `/api/content/screening` | Store screening preferences used by the content script |
 | `GET` / `POST` / `DELETE` | `/api/documents` | Upload, list, fetch, and delete local application documents |
 | `POST` | `/api/cover-letter` | Generate a tailored cover letter from the stored resume and scraped job |
 | `POST` | `/api/cover-letter/pdf` | Render reviewed cover-letter text to PDF |
 | `POST` | `/api/other-docs/generate` | Draft employer-requested supplemental documents from stored materials |
 | `POST` | `/api/other-docs/pdf` | Render reviewed supplemental document text to PDF |
-| `POST` | `/api/debug/client-log` | Persist extension-side debug events |
 
 ## MongoDB Data Model
 
@@ -123,12 +121,10 @@ MongoDB is the source of truth for deployed state:
 - `documents`: resume, transcript, cover letter, GitHub project writeup, and
   arbitrary supporting files with metadata plus stored content or GridFS
   references.
-- `applicationRuns`: run lifecycle, source URL, counters, and error state.
-- `applications`: per-job status, skip reason, job metadata, and raw Handshake
-  snapshot.
+- `applicationRuns`: run lifecycle, source URL, aggregate counters, and error state.
 
-A unique compound index on successful `applications` by Handshake job ID prevents
-duplicate applications across runs.
+The backend deliberately does not persist per-job outcomes. Handshake's applied
+state is used to detect whether a job was already submitted.
 
 ## Safety Features
 
@@ -137,7 +133,8 @@ duplicate applications across runs.
 - Each run has a visible Stop control and delay between attempts.
 - Jobs are skipped when they are already applied, external, unsupported,
   ambiguous, incomplete, or missing required local documents.
-- Duplicate jobs are checked against MongoDB before submission.
+- Handshake's own applied state is trusted instead of maintaining a second
+  cross-run application ledger.
 - AI-generated documents are reviewed by the user before attachment/submission.
 - OpenAI calls happen in the backend, keeping the API key and local documents out
   of the browser runtime.
@@ -166,7 +163,6 @@ generation latency depends on network/model response time and document size.
 | --- | ---: | ---: | ---: | ---: |
 | `GET /api/health` | 5.38 ms | 4.22 ms | 11.37 ms | 16.91 ms |
 | `GET /api/settings` | 3.18 ms | 3.11 ms | 5.79 ms | 6.37 ms |
-| `GET /api/applications/exists` | 3.82 ms | 3.11 ms | 9.02 ms | 11.09 ms |
 
 ## Repository Layout
 
@@ -243,21 +239,16 @@ Recent local checks:
 
 ```bash
 cd frontend && npm run build
-cd backend && mvn -DskipTests package
+cd backend && mvn test
 ```
-
-`mvn test` currently starts the Spring context but fails in this local environment
-because Mockito/Byte Buddy cannot self-attach an agent on the installed macOS/JDK
-setup. The backend package step verifies compilation and jar creation.
 
 ## Resume Bullets
 
 - Built HandShook, a Chrome MV3 extension that automates eligible
   Handshake one-click job applications using React, TypeScript, content scripts,
   and a Spring Boot backend deployed with MongoDB persistence.
-- Implemented a run orchestration pipeline with backend health checks, duplicate
-  prevention, audited job outcomes, safe skip classifications, and user-controlled
-  stop behavior.
+- Implemented a run orchestration pipeline with backend health checks, aggregate
+  run telemetry, safe skip classifications, and user-controlled stop behavior.
 - Added server-side AI document generation with OpenAI Chat Completions, PDFBox
   text extraction, OpenPDF rendering, and browser-side PDF attachment workflows
   while keeping API keys and user files local.

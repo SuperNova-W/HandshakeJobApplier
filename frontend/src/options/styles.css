@@ -338,3 +338,203 @@ body {
   font-size: 13px;
   color: var(--ink-2);
 }
+
+/* ---- First-run onboarding ---- */
+.onboarding-page {
+  max-width: 960px;
+}
+.onboarding-header .eyebrow {
+  margin-bottom: 10px;
+}
+.onboarding-progress {
+  list-style: none;
+  margin: 0 0 18px;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+.progress-step {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid var(--border-hair);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: var(--shadow-card);
+}
+.progress-step span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.progress-step.active {
+  background: var(--accent);
+  color: var(--ink-on-accent);
+  border-color: var(--accent);
+}
+.progress-step.done {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.progress-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--r-pill);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--paper-1);
+  color: inherit;
+  flex-shrink: 0;
+}
+.progress-step.active .progress-icon {
+  background: rgba(243, 240, 238, 0.16);
+}
+.onboarding-stage {
+  min-height: 280px;
+}
+.onboarding-stage .other-card {
+  margin-top: 0;
+}
+.onboarding-card {
+  max-width: 620px;
+}
+.onboarding-primary,
+.onboarding-secondary {
+  margin-top: 4px;
+}
+.onboarding-primary {
+  width: 100%;
+  justify-content: center;
+}
+.onboarding-secondary {
+  width: auto;
+}
+.onboarding-status {
+  display: block;
+  margin-top: 12px;
+}
+.account-pill {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  margin: 12px 0;
+  border-radius: var(--r-well);
+  border: 1px solid var(--border-soft);
+  background: var(--surface-2);
+}
+.account-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: var(--r-pill);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--accent);
+  color: var(--ink-on-accent);
+  font-weight: 800;
+}
+.account-pill span:last-child {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.account-pill strong,
+.account-pill small {
+  overflow-wrap: anywhere;
+}
+.account-pill strong {
+  font-size: 14px;
+  color: var(--ink-1);
+}
+.account-pill small {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.onboarding-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.onboarding-section-head h2 {
+  font-size: var(--h2-size);
+}
+.onboarding-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 18px;
+}
+.onboarding-actions .btn {
+  min-width: 132px;
+  justify-content: center;
+}
+.completion-list {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.completion-list li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-well);
+  background: var(--surface-2);
+}
+.completion-list svg {
+  color: var(--accent);
+}
+.completion-list span {
+  min-width: 0;
+  color: var(--ink-2);
+  font-size: 13px;
+}
+.completion-list strong {
+  min-width: 0;
+  color: var(--ink-1);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+@media (max-width: 760px) {
+  .onboarding-progress {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .progress-step:last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 520px) {
+  .onboarding-actions {
+    flex-direction: column-reverse;
+  }
+  .onboarding-actions .btn {
+    width: 100%;
+  }
+  .completion-list li {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .completion-list strong {
+    grid-column: 2;
+    text-align: left;
+  }
+}

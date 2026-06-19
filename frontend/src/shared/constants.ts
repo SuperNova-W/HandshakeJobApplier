@@ -12,9 +12,22 @@ export const DEFAULT_SETTINGS: Settings = {
 // no locations + not-anywhere means location questions default to "No".
 export const DEFAULT_SCREENING: ScreeningPrefs = {
   usWorkAuthorized: true,
+  softwareEngineeringDegree: true,
+  speaksEnglish: true,
   relocateAnywhere: false,
   locations: []
 };
+
+export function normalizeScreeningPrefs(prefs?: Partial<ScreeningPrefs> | null): ScreeningPrefs {
+  return {
+    usWorkAuthorized: prefs?.usWorkAuthorized ?? DEFAULT_SCREENING.usWorkAuthorized,
+    softwareEngineeringDegree:
+      prefs?.softwareEngineeringDegree ?? DEFAULT_SCREENING.softwareEngineeringDegree,
+    speaksEnglish: prefs?.speaksEnglish ?? DEFAULT_SCREENING.speaksEnglish,
+    relocateAnywhere: prefs?.relocateAnywhere ?? DEFAULT_SCREENING.relocateAnywhere,
+    locations: Array.isArray(prefs?.locations) ? prefs.locations : []
+  };
+}
 
 export function createInitialRuntimeState(): RuntimeState {
   return {

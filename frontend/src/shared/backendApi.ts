@@ -1,12 +1,13 @@
 import { BACKEND_BASE_URL } from "./constants";
 import type {
   BackendHealth,
+  BackendUser,
   CoverLetterResult,
   CreateRunResponse,
   DocumentMeta,
   DocumentType,
   JobContext,
-  JobResult,
+  ApplicationStatus,
   OtherDocsResult,
   RunStatus,
   RunSummary,
@@ -75,17 +76,11 @@ export function finalizeRun(
   });
 }
 
-export function recordApplication(runId: string, result: JobResult) {
-  return requestJson<void>(`/api/runs/${runId}/applications`, {
+export function recordRunOutcome(runId: string, status: ApplicationStatus) {
+  return requestJson<void>(`/api/runs/${runId}/outcomes`, {
     method: "POST",
-    body: JSON.stringify({ ...result, appliedAt: new Date().toISOString() })
+    body: JSON.stringify({ status })
   });
-}
-
-export function checkDuplicate(handshakeJobId: string) {
-  return requestJson<{ exists: boolean }>(
-    `/api/applications/exists?handshakeJobId=${encodeURIComponent(handshakeJobId)}`
-  );
 }
 
 export function getScreeningPrefs() {
@@ -96,6 +91,23 @@ export function saveScreeningPrefs(prefs: ScreeningPrefs) {
   return requestJson<ScreeningPrefs>("/api/content/screening", {
     method: "PUT",
     body: JSON.stringify(prefs)
+  });
+}
+
+export function authenticateGoogleUser(accessToken: string) {
+  return requestJson<BackendUser>("/api/users/google", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
+}
+
+export function getCurrentUser() {
+  return requestJson<BackendUser>("/api/users/current");
+}
+
+export function completeCurrentUserOnboarding() {
+  return requestJson<BackendUser>("/api/users/current/onboarding", {
+    method: "PUT"
   });
 }
 
@@ -264,15 +276,4 @@ export async function documentBase64ByType(docType: DocumentType): Promise<Store
 
 export function documentContentUrl(id: string): string {
   return `${BACKEND_BASE_URL}/api/documents/${id}/content`;
-}
-
-// Forwards client-side (content script) diagnostics to the backend so they land
-// in backend/logs/backend.log — far easier to read than asking the user to copy
-// console output out of the Handshake tab. Routed via the background worker
-// because only the chrome-extension:// origin is allowed by CORS.
-export function sendClientLog(label: string, payload: unknown) {
-  return requestJson<void>("/api/debug/client-log", {
-    method: "POST",
-    body: JSON.stringify({ label, payload, at: new Date().toISOString() })
-  });
 }

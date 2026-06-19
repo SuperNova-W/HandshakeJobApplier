@@ -3,6 +3,7 @@ import React from "react";
 import {
   Activity,
   ArrowRight,
+  CheckCircle2,
   FolderOpen,
   Globe,
   History,
@@ -13,10 +14,12 @@ import {
   Square
 } from "lucide-react";
 import { createInitialRuntimeState } from "../shared/constants";
+import { onboardingPageUrl, readOnboardingState } from "../shared/onboarding";
 import type {
   ExtensionMessage,
   ExtensionResponse,
   PageContext,
+  PageDiagnostics,
   PopupRunStatus,
   RuntimeState
 } from "../shared/contracts";
@@ -85,11 +88,14 @@ async function getActivePageContext(): Promise<PageContext> {
 function App() {
   const [runtimeState, setRuntimeState] = useState<RuntimeState>(createInitialRuntimeState());
   const [pageContext, setPageContext] = useState<PageContext>(initialPageContext);
+  const [diagnostics, setDiagnostics] = useState<PageDiagnostics | null>(null);
+  const [onboardingComplete, setOnboardingComplete] = useState<boolean | null>(null);
   const [uiMessage, setUiMessage] = useState("Ready. Refresh backend status before starting a run.");
 
   useEffect(() => {
     void refreshRuntimeState({ refreshBackend: true });
     void refreshPageContext();
+    void refreshOnboardingState();
   }, []);
 
   // Poll for live counter updates while a run is in progress
@@ -133,7 +139,41 @@ function App() {
     }
   }
 
+  async function refreshOnboardingState() {
+    try {
+      const state = await readOnboardingState();
+      setOnboardingComplete(state.complete);
+      if (!state.complete) {
+        setUiMessage("Finish first-run setup before starting a run.");
+      }
+    } catch {
+      setOnboardingComplete(false);
+      setUiMessage("Finish first-run setup before starting a run.");
+    }
+  }
+
+  function openOnboarding() {
+    if (globalThis.chrome?.tabs?.create) {
+      void globalThis.chrome.tabs.create({ url: onboardingPageUrl() });
+      return;
+    }
+    globalThis.chrome?.runtime?.openOptionsPage?.();
+  }
+
+  function openDocumentsOrOnboarding() {
+    if (onboardingComplete === false) {
+      openOnboarding();
+      return;
+    }
+    globalThis.chrome?.runtime?.openOptionsPage?.();
+  }
+
   async function handleStart() {
+    if (onboardingComplete !== true) {
+      setUiMessage("Finish first-run setup before starting a run.");
+      return;
+    }
+
     if (pageContext.support !== "supported") {
       setUiMessage("Open a supported Handshake page before starting.");
       return;
@@ -157,6 +197,34 @@ function App() {
     setUiMessage("Run started. The extension will navigate through jobs automatically.");
   }
 
+  async function handleDiagnose() {
+    if (pageContext.support !== "supported") {
+      setUiMessage("Open a supported Handshake page before diagnosing.");
+      return;
+    }
+
+    setUiMessage("Capturing page diagnostic...");
+    const response = await sendExtensionMessage({ type: "runtime/diagnose-page" });
+
+    if (!response) {
+      setUiMessage("Chrome runtime unavailable. Diagnose is only available inside the extension.");
+      return;
+    }
+
+    if (!response.ok) {
+      setUiMessage(response.error);
+      return;
+    }
+
+    if (!("diagnostics" in response)) return;
+
+    setDiagnostics(response.diagnostics);
+    setUiMessage(
+      `Diagnostic captured: ${response.diagnostics.visibleJobCardCount} visible cards, ` +
+        `${response.diagnostics.selectedJobId ?? "no selected job"}.`
+    );
+  }
+
   async function handleStop() {
     const response = await sendExtensionMessage({ type: "runtime/stop" });
 
@@ -177,11 +245,13 @@ function App() {
   }
 
   const startDisabled =
+    onboardingComplete !== true ||
     pageContext.support !== "supported" ||
     runtimeState.backendHealth !== "online" ||
     runtimeState.runStatus === "RUNNING" ||
     runtimeState.runStatus === "STOPPING";
   const stopDisabled = runtimeState.runStatus !== "RUNNING";
+  const diagnoseDisabled = pageContext.support !== "supported";
 
   return (
     <main className="app-shell">
@@ -206,7 +276,7 @@ function App() {
             type="button"
             title="Documents & settings"
             aria-label="Open documents and settings"
-            onClick={() => globalThis.chrome?.runtime?.openOptionsPage?.()}
+            onClick={openDocumentsOrOnboarding}
           >
             <SettingsIcon size={18} aria-hidden="true" />
           </button>
@@ -214,6 +284,27 @@ function App() {
       </header>
 
       <div className="scroll-body">
+        {onboardingComplete === false && (
+          <section className="panel setup-panel">
+            <header className="panel-header">
+              <span className="panel-title-ic">
+                <CheckCircle2 size={15} aria-hidden="true" /> First-run setup
+              </span>
+              <small>Required</small>
+            </header>
+            <p className="panel-note">
+              Sign in with Google, upload application files, and save screening answers before
+              starting.
+            </p>
+            <div className="button-row">
+              <button className="button button-primary" type="button" onClick={openOnboarding}>
+                <CheckCircle2 size={16} aria-hidden="true" /> Finish setup
+                <ArrowRight size={15} aria-hidden="true" />
+              </button>
+            </div>
+          </section>
+        )}
+
         <section className="panel controls-panel">
           <header className="panel-header">
             <span className="panel-title-ic">
@@ -227,6 +318,9 @@ function App() {
             </button>
             <button className="button button-secondary" type="button" onClick={() => void handleStop()} disabled={stopDisabled}>
               <Square size={16} aria-hidden="true" /> Stop
+            </button>
+            <button className="button button-secondary" type="button" onClick={() => void handleDiagnose()} disabled={diagnoseDisabled}>
+              <Activity size={16} aria-hidden="true" /> Diagnose
             </button>
             <button className="button button-ghost" type="button" onClick={() => void refreshRuntimeState({ refreshBackend: true })}>
               <RefreshCw size={16} aria-hidden="true" /> Refresh
@@ -275,7 +369,7 @@ function App() {
           <button
             className="button button-secondary"
             type="button"
-            onClick={() => globalThis.chrome?.runtime?.openOptionsPage?.()}
+            onClick={openDocumentsOrOnboarding}
           >
             <FolderOpen size={16} aria-hidden="true" /> Manage documents
             <ArrowRight size={15} aria-hidden="true" />
@@ -340,6 +434,22 @@ function App() {
             <StatusBadge tone={pageContext.support}>{formatStatusLabel(pageContext.support)}</StatusBadge>
           </header>
           <p className="url-preview">{pageContext.url ?? "No active tab detected"}</p>
+          {diagnostics ? (
+            <dl className="settings-grid">
+              <div>
+                <dt>Cards</dt>
+                <dd>{diagnostics.visibleJobCardCount}</dd>
+              </div>
+              <div>
+                <dt>Selected</dt>
+                <dd>{diagnostics.selectedJobId ?? "None"}</dd>
+              </div>
+              <div>
+                <dt>Apply</dt>
+                <dd>{diagnostics.gates.applyButtonFound ? "Found" : "Missing"}</dd>
+              </div>
+            </dl>
+          ) : null}
           <div className="button-row">
             <button className="button button-secondary" type="button" onClick={() => void refreshPageContext()}>
               <RefreshCw size={16} aria-hidden="true" /> Refresh Page

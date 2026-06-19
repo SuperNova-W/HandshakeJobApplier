@@ -9,7 +9,7 @@ This is the living implementation document for the local Spring Boot companion b
 - Java version target: 21
 - Build tool: Maven
 - Current scope: app bootstrap, localhost binding, extension CORS config, SQLite datasource config, schema initialization skeleton, DB-backed health endpoint
-- Not implemented yet: settings API, runs API, applications API, repository/service layer
+- Per-job application persistence is intentionally omitted; only aggregate run counters are stored
 
 ## Directory Structure
 
@@ -80,9 +80,10 @@ backend/
 - Creates the initial SQLite tables (idempotent, `CREATE TABLE IF NOT EXISTS`):
   - `settings`
   - `application_runs`
-  - `applications`
 - Inserts the default `settings` row via `INSERT OR IGNORE` (safe to re-run on every startup)
-- Adds indexes for run lookups and duplicate prevention
+- Removes the legacy per-job `applications` table; Handshake is the source of
+  truth for submitted jobs.
+- Adds the run-history lookup index.
 
 ### Test Skeleton
 - Spring context smoke test only
@@ -147,10 +148,9 @@ is a shared bean so the extraction logic lives in one place.
 - `GET /api/health`
 - `GET /api/settings`
 - `POST /api/runs`
+- `POST /api/runs/{runId}/outcomes`
 - `PATCH /api/runs/{runId}`
 - `GET /api/runs`
-- `POST /api/runs/{runId}/applications`
-- `GET /api/applications/exists`
 - `GET /api/content/screening`
 - `PUT /api/content/screening`
 - `GET /api/documents`
@@ -162,7 +162,21 @@ is a shared bean so the extraction logic lives in one place.
 - `POST /api/cover-letter/pdf`
 - `POST /api/other-docs/generate`
 - `POST /api/other-docs/pdf`
-- `POST /api/debug/client-log`
+
+### SQLite user profile endpoints
+
+Google onboarding now persists the verified account profile in SQLite:
+
+- `POST /api/users/google` with the Google access token in the `Authorization:
+  Bearer ...` header verifies the token with Google's user-info endpoint, upserts
+  the account, and makes it the active local user.
+- `GET /api/users/current` returns the active user, or `404` before sign-in.
+- `PUT /api/users/current/onboarding` records onboarding completion.
+
+The `users` table stores the Google subject, email, display name, picture URL,
+authentication time, and onboarding-completion time. `current_user` identifies
+the active account. OAuth access and refresh tokens are never stored, and
+`/api/users/**` request/response bodies are redacted from backend logs.
 
 ## Local Run Notes
 

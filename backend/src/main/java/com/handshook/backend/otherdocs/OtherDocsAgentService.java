@@ -67,6 +67,7 @@ public class OtherDocsAgentService {
 
         List<Source> sources = userDocsContext.gather();
         if (sources.isEmpty()) {
+            log.warn("OTHER_DOCS_GENERATE blocked: no source documents on file");
             throw new IllegalStateException(
                 "No documents on file to draft from. Upload your resume, GitHub project, or other "
                     + "documents on the Documents page before using the agent.");
@@ -74,6 +75,8 @@ public class OtherDocsAgentService {
 
         String company = orUnknown(request.company(), "the company");
         String role = orUnknown(request.jobTitle(), "this role");
+        int jdChars = request.jobDescription() == null ? 0 : request.jobDescription().length();
+        int instructionChars = request.instructions() == null ? 0 : request.instructions().length();
 
         Map<String, Object> body = Map.of(
             "model", MODEL,
@@ -85,8 +88,17 @@ public class OtherDocsAgentService {
             )
         );
 
-        log.info("Drafting other-document for role='{}' at company='{}' from {} source(s).",
-            role, company, sources.size());
+        log.info(
+            "OTHER_DOCS_GENERATE start role='{}' company='{}' sources={} sourceLabels={} instructionsChars={} jobDescriptionChars={} model={} maxTokens={}",
+            role,
+            company,
+            sources.size(),
+            sources.stream().map(Source::label).toList(),
+            instructionChars,
+            jdChars,
+            MODEL,
+            MAX_TOKENS
+        );
 
         JsonNode response;
         try {
@@ -104,10 +116,13 @@ public class OtherDocsAgentService {
 
         String document = extractContent(response);
         if (document.isBlank()) {
+            log.warn("OTHER_DOCS_GENERATE empty response role='{}' company='{}' rawResponse={}",
+                role, company, response);
             throw new IllegalStateException("The agent returned an empty document.");
         }
 
-        log.info("Other-document drafted ({} chars).", document.length());
+        log.info("OTHER_DOCS_GENERATE complete role='{}' company='{}' chars={} usage={}",
+            role, company, document.length(), response == null ? null : response.path("usage"));
         return new OtherDocsResponse(
             document, MODEL, Instant.now().toString(), sources.stream().map(Source::label).toList());
     }

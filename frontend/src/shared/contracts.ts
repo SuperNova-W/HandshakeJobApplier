@@ -10,7 +10,6 @@ export type SkipReason =
   | "SCREENING_QUESTIONS"
   | "NO_APPLY_BUTTON"
   | "DISABLED_BUTTON"
-  | "DUPLICATE_IN_DB"
   | "UNSUPPORTED_PAGE"
   // Job required documents beyond the resume ("Attach other required documents").
   | "SAVED_FOR_LATER"
@@ -98,6 +97,47 @@ export interface PageContext {
   url: string | null;
 }
 
+export interface PageDiagnostics {
+  url: string;
+  pageSupport: PageSupportStatus;
+  route: "job-detail" | "job-search" | "supported-other";
+  isOnJobDetailPage: boolean;
+  selectedJobId: string | null;
+  currentPage: number;
+  visibleJobCardCount: number;
+  cardSamples: Array<{
+    id: string;
+    title: string;
+    isSearch: boolean;
+  }>;
+  currentJob: {
+    title: string;
+    company: string;
+  };
+  gates: {
+    alreadyApplied: boolean;
+    externalApply: boolean;
+    applyButtonFound: boolean;
+    applyButtonText: string | null;
+    screeningQuestionsVisible: boolean;
+    otherRequiredDocsVisible: boolean;
+  };
+  session: {
+    runLoopActive: boolean;
+    activeRunId: string | null;
+    activeMode: "detail" | "list" | null;
+    shouldStop: boolean | null;
+    seenCount: number;
+    processed: number | null;
+  };
+  counts: {
+    totalButtons: number;
+    totalAnchors: number;
+    jobResultCardHooks: number;
+  };
+  buttonsSample: string[];
+}
+
 export interface JobContext {
   jobTitle: string;
   company: string;
@@ -126,8 +166,37 @@ export interface OtherDocsResult {
 // location question is "Yes" only when its text mentions one of `locations`.
 export interface ScreeningPrefs {
   usWorkAuthorized: boolean;
+  softwareEngineeringDegree: boolean;
+  speaksEnglish: boolean;
   relocateAnywhere: boolean;
   locations: string[];
+}
+
+export interface GoogleUserProfile {
+  backendUserId: string | null;
+  id: string | null;
+  email: string;
+  name: string | null;
+  picture: string | null;
+  authenticatedAt: string;
+}
+
+export interface BackendUser {
+  id: string;
+  googleSubject: string;
+  email: string;
+  displayName: string | null;
+  pictureUrl: string | null;
+  authenticatedAt: string;
+  onboardingCompletedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OnboardingState {
+  complete: boolean;
+  completedAt: string | null;
+  user: GoogleUserProfile | null;
 }
 
 // Outcome of injecting the rendered cover-letter PDF into Handshake's apply modal
@@ -163,11 +232,14 @@ export interface StoredDocument {
 export type ExtensionMessage =
   | { type: "runtime/get" }
   | { type: "runtime/refresh" }
+  | { type: "runtime/get-onboarding" }
+  | { type: "runtime/google-login" }
+  | { type: "runtime/complete-onboarding" }
   | { type: "runtime/start" }
   | { type: "runtime/stop" }
+  | { type: "runtime/diagnose-page" }
   | { type: "runtime/generate-cover-letter" }
   | { type: "runtime/attach-cover-letter"; coverLetter: string }
-  | { type: "runtime/check-duplicate"; handshakeJobId: string }
   // Sent from the content script mid-run to fetch a stored document (e.g. the
   // user's transcript) by type — the background worker proxies the backend call
   // because content scripts are blocked by CORS.
@@ -209,6 +281,7 @@ export type ContentMessage =
       settings: Settings;
       screening: ScreeningPrefs;
     }
+  | { type: "content/diagnose-page" }
   | { type: "content/stop-run" }
   | { type: "content/scrape-job" }
   | { type: "content/attach-cover-letter"; pdfBase64: string; filename: string };
@@ -224,18 +297,21 @@ export type ContentResponse =
       pageSupport: PageSupportStatus;
       discoveredJobCount: number;
     }
+  | { ok: true; diagnostics: PageDiagnostics }
   | { ok: true; job: JobContext }
   | { ok: true; attach: AttachResult }
   | { ok: false; error: string };
 
 export type ExtensionResponse =
   | { ok: true; state: RuntimeState }
+  | { ok: true; onboarding: OnboardingState }
+  | { ok: true; user: GoogleUserProfile }
   | { ok: true; shouldStop: boolean }
+  | { ok: true; diagnostics: PageDiagnostics }
   | { ok: true; coverLetter: CoverLetterResult }
   // The RAG agent's drafted document, ready for the in-page review overlay.
   | { ok: true; otherDoc: OtherDocsResult }
   | { ok: true; attach: AttachResult }
-  | { ok: true; duplicate: boolean }
   // `document` is null when no document of the requested type is stored.
   | { ok: true; document: StoredDocument | null }
   // A rendered PDF (base64) ready to drop into the apply modal — used by both the

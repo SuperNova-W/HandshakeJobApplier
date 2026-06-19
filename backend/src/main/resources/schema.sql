@@ -40,25 +40,57 @@ CREATE TABLE IF NOT EXISTS user_content (
 INSERT OR IGNORE INTO user_content (id, resume_text, updated_at)
 VALUES (1, NULL, CURRENT_TIMESTAMP);
 
+-- Google profile for the person using this local companion backend. The users
+-- table keeps account history while current_user identifies the active account.
+-- OAuth access tokens are deliberately never stored.
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    google_subject TEXT NOT NULL UNIQUE,
+    email TEXT NOT NULL COLLATE NOCASE,
+    display_name TEXT NULL,
+    picture_url TEXT NULL,
+    authenticated_at TEXT NOT NULL,
+    onboarding_completed_at TEXT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email COLLATE NOCASE);
+
+CREATE TABLE IF NOT EXISTS current_user (
+    id INTEGER PRIMARY KEY,
+    user_id TEXT NOT NULL UNIQUE,
+    updated_at TEXT NOT NULL,
+    CHECK (id = 1),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
 -- Single-row store for the answers the bot gives to common Handshake screening
--- questions: US work authorization (Yes/No) and the locations the user is in or
--- willing to relocate to (relocate_anywhere short-circuits any location question
--- to "Yes"; relocate_locations is a JSON array of place strings matched against
--- the question text). Kept in its own table (not user_content) so existing DBs
--- don't need an ALTER — CREATE TABLE IF NOT EXISTS just adds it on next startup.
+-- questions: US work authorization, software/technical degree, English, and the
+-- locations the user is in or willing to relocate to (relocate_anywhere
+-- short-circuits any location question to "Yes"; relocate_locations is a JSON
+-- array of place strings matched against the question text).
 CREATE TABLE IF NOT EXISTS screening_prefs (
     id INTEGER PRIMARY KEY,
     us_work_authorized INTEGER NOT NULL DEFAULT 1,
+    software_engineering_degree INTEGER NOT NULL DEFAULT 1,
+    speaks_english INTEGER NOT NULL DEFAULT 1,
     relocate_anywhere INTEGER NOT NULL DEFAULT 0,
     relocate_locations TEXT NULL,
     updated_at TEXT NOT NULL,
     CHECK (id = 1),
     CHECK (us_work_authorized IN (0, 1)),
+    CHECK (software_engineering_degree IN (0, 1)),
+    CHECK (speaks_english IN (0, 1)),
     CHECK (relocate_anywhere IN (0, 1))
 );
 
 INSERT OR IGNORE INTO screening_prefs (
-    id, us_work_authorized, relocate_anywhere, relocate_locations, updated_at
+    id,
+    us_work_authorized,
+    relocate_anywhere,
+    relocate_locations,
+    updated_at
 )
 VALUES (1, 1, 0, NULL, CURRENT_TIMESTAMP);
 
@@ -80,6 +112,11 @@ CREATE TABLE IF NOT EXISTS documents (
 
 CREATE INDEX IF NOT EXISTS idx_documents_doc_type ON documents(doc_type);
 
+-- Handshake is the source of truth for whether a particular job was already
+-- applied to. Older builds stored one row per processed job in `applications`;
+-- remove that legacy history and retain only aggregate counters on each run.
+DROP TABLE IF EXISTS applications;
+
 CREATE TABLE IF NOT EXISTS application_runs (
     id TEXT PRIMARY KEY,
     started_at TEXT NOT NULL,
@@ -93,39 +130,5 @@ CREATE TABLE IF NOT EXISTS application_runs (
     CHECK (status IN ('RUNNING', 'COMPLETED', 'STOPPED', 'FAILED'))
 );
 
-CREATE TABLE IF NOT EXISTS applications (
-    id TEXT PRIMARY KEY,
-    run_id TEXT NOT NULL,
-    handshake_job_id TEXT NOT NULL,
-    job_url TEXT NOT NULL,
-    title TEXT NOT NULL,
-    company TEXT NOT NULL,
-    status TEXT NOT NULL,
-    skip_reason TEXT NULL,
-    applied_at TEXT NOT NULL,
-    error_message TEXT NULL,
-    raw_job_snapshot_json TEXT NULL,
-    FOREIGN KEY (run_id) REFERENCES application_runs(id) ON DELETE CASCADE,
-    CHECK (status IN ('APPLIED', 'SKIPPED', 'FAILED')),
-    CHECK (
-        (status = 'SKIPPED' AND skip_reason IS NOT NULL)
-        OR (status <> 'SKIPPED' AND skip_reason IS NULL)
-    ),
-    CHECK (
-        (status = 'FAILED' AND error_message IS NOT NULL)
-        OR (status <> 'FAILED' AND error_message IS NULL)
-    )
-);
-
 CREATE INDEX IF NOT EXISTS idx_application_runs_started_at
     ON application_runs(started_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_applications_run_id
-    ON applications(run_id);
-
-CREATE INDEX IF NOT EXISTS idx_applications_handshake_job_id
-    ON applications(handshake_job_id);
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_applications_unique_applied_job
-    ON applications(handshake_job_id)
-    WHERE status = 'APPLIED';

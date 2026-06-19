@@ -35,7 +35,7 @@ public class DocumentsService {
     }
 
     public List<DocumentMeta> list() {
-        return jdbcTemplate.query(
+        List<DocumentMeta> docs = jdbcTemplate.query(
             "SELECT id, doc_type, label, filename, content_type, size_bytes, uploaded_at "
                 + "FROM documents ORDER BY uploaded_at DESC",
             (rs, n) -> new DocumentMeta(
@@ -48,6 +48,8 @@ public class DocumentsService {
                 rs.getString("uploaded_at")
             )
         );
+        log.info("DOCUMENT_LIST count={} docs={}", docs.size(), docs);
+        return docs;
     }
 
     public DocumentMeta upload(String docTypeRaw, String label, MultipartFile file) {
@@ -76,7 +78,8 @@ public class DocumentsService {
 
         // Single-slot replacement for fixed types.
         if (FIXED_TYPES.contains(docType)) {
-            jdbcTemplate.update("DELETE FROM documents WHERE doc_type = ?", docType);
+            int deleted = jdbcTemplate.update("DELETE FROM documents WHERE doc_type = ?", docType);
+            log.info("DOCUMENT_UPLOAD replacing fixed slot type={} deletedExisting={}", docType, deleted);
         }
 
         jdbcTemplate.update(con -> {
@@ -99,11 +102,13 @@ public class DocumentsService {
             return ps;
         });
 
-        log.info("Stored document type={} filename='{}' ({} bytes)", docType, filename, data.length);
+        log.info("DOCUMENT_UPLOAD stored id={} type={} label={} filename='{}' contentType={} bytes={}",
+            id, docType, cleanLabel, filename, contentType, data.length);
         return new DocumentMeta(id, docType, cleanLabel, filename, contentType, data.length, uploadedAt);
     }
 
     public DocumentContent getContent(String id) {
+        log.info("DOCUMENT_GET id={}", id);
         List<DocumentContent> results = jdbcTemplate.query(
             "SELECT filename, content_type, data FROM documents WHERE id = ?",
             (rs, n) -> new DocumentContent(
@@ -114,9 +119,13 @@ public class DocumentsService {
             id
         );
         if (results.isEmpty()) {
+            log.warn("DOCUMENT_GET missing id={}", id);
             throw new IllegalArgumentException("No document found with id " + id + ".");
         }
-        return results.get(0);
+        DocumentContent doc = results.get(0);
+        log.info("DOCUMENT_GET hit id={} filename='{}' contentType={} bytes={}",
+            id, doc.filename(), doc.contentType(), doc.data() == null ? 0 : doc.data().length);
+        return doc;
     }
 
     /**
@@ -125,6 +134,7 @@ public class DocumentsService {
      * there is at most one). Returns bytes, not metadata.
      */
     public DocumentContent getLatestByType(String docType) {
+        log.info("DOCUMENT_LATEST lookup type={}", docType);
         List<DocumentContent> results = jdbcTemplate.query(
             "SELECT filename, content_type, data FROM documents WHERE doc_type = ? "
                 + "ORDER BY uploaded_at DESC LIMIT 1",
@@ -135,7 +145,13 @@ public class DocumentsService {
             ),
             docType
         );
-        return results.isEmpty() ? null : results.get(0);
+        DocumentContent doc = results.isEmpty() ? null : results.get(0);
+        log.info("DOCUMENT_LATEST type={} found={} filename={} bytes={}",
+            docType,
+            doc != null,
+            doc == null ? null : doc.filename(),
+            doc == null || doc.data() == null ? 0 : doc.data().length);
+        return doc;
     }
 
     /**
@@ -144,7 +160,7 @@ public class DocumentsService {
      * multi-document OTHER slot into the RAG document generator.
      */
     public List<NamedDocumentContent> getAllByType(String docType) {
-        return jdbcTemplate.query(
+        List<NamedDocumentContent> docs = jdbcTemplate.query(
             "SELECT filename, content_type, label, data FROM documents WHERE doc_type = ? "
                 + "ORDER BY uploaded_at DESC",
             (rs, n) -> new NamedDocumentContent(
@@ -155,14 +171,20 @@ public class DocumentsService {
             ),
             docType
         );
+        log.info("DOCUMENT_ALL_BY_TYPE type={} count={} files={}",
+            docType,
+            docs.size(),
+            docs.stream().map(d -> d.filename() + "(" + (d.data() == null ? 0 : d.data().length) + " bytes)").toList());
+        return docs;
     }
 
     public void delete(String id) {
         int rows = jdbcTemplate.update("DELETE FROM documents WHERE id = ?", id);
         if (rows == 0) {
+            log.warn("DOCUMENT_DELETE missing id={}", id);
             throw new IllegalArgumentException("No document found with id " + id + ".");
         }
-        log.info("Deleted document id={}", id);
+        log.info("DOCUMENT_DELETE deleted id={}", id);
     }
 
     /** File bytes plus the bits needed to serve a download. */

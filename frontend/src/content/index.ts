@@ -4,18 +4,21 @@ import type {
   DocumentType,
   JobContext,
   JobResult,
+  PageDiagnostics,
   RunStatus,
   ScreeningPrefs,
   Settings,
   StoredDocument
 } from "../shared/contracts";
+import { normalizeScreeningPrefs } from "../shared/constants";
 import { inferPageSupport } from "../shared/handshake";
 
-// The user's screening-question answers (US work authorization + relocation
-// locations), pushed from the background worker on content/start-run. Defaults
-// are safe for the common case (authorized; no relocation) until a run sets them.
+// The user's screening-question answers, pushed from the background worker on
+// content/start-run. Defaults match the options page until a run sets them.
 let screeningPrefs: ScreeningPrefs = {
   usWorkAuthorized: true,
+  softwareEngineeringDegree: true,
+  speaksEnglish: true,
   relocateAnywhere: false,
   locations: []
 };
@@ -73,6 +76,7 @@ function dumpAnchorDiagnostics(): void {
 // Handshake actually renders when our selectors miss.
 function dumpButtonTexts(): string[] {
   return Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
+    .filter(isElementVisible)
     .map((b) => (b.textContent ?? "").trim())
     .filter((t) => t.length > 0);
 }
@@ -94,7 +98,7 @@ function ancestryHooks(el: HTMLElement): string[] {
   return out;
 }
 
-// Snapshot the apply modal's upload widgets to backend.log so we can see how
+// Snapshot the apply modal's upload widgets in the extension console so we can see how
 // Handshake really wires its cover-letter/transcript uploads (their structure is
 // the thing we understand least). Captures every file input (name/id/accept/
 // hidden/disabled/files + which section it sits in), the cover-letter and
@@ -202,8 +206,8 @@ function dumpDomDiagnostics(): void {
   // "Copy string contents", then paste it back.
   console.log(`${LOG} DOM_DIAGNOSTICS_JSON\n` + JSON.stringify(summary, null, 2));
 
-  // Also ship it to the background worker, which forwards it to the backend log
-  // (backend/logs/backend.log) so it can be read without copying console output.
+  // Also ship it to the background worker's console. It is intentionally not
+  // persisted by the backend because job-level diagnostics can contain identity.
   void chrome.runtime
     .sendMessage({ type: "content/debug-log", label: "dom-diagnostics", payload: summary })
     .catch(() => {
@@ -244,6 +248,10 @@ interface RunSession {
   // walk so we can resume the SAME run after a reload instead of restarting.
   mode?: "detail" | "list";
   screening?: ScreeningPrefs;
+  // User-selected handling for "other required documents". This belongs to the
+  // run session (not only this page's JS memory) so "remember my choice" keeps
+  // working after Handshake route changes or hard reloads.
+  otherDocsRemembered?: OtherDocsAction | null;
   // Job ids already handled this run (applied/skipped). Marked seen BEFORE we
   // apply, so a reload mid-application skips that job rather than re-submitting it.
   seenIds?: string[];
@@ -302,13 +310,21 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function pathnameFor(url: string): string {
+  try {
+    return new URL(url, window.location.origin).pathname;
+  } catch {
+    return url;
+  }
+}
+
 function extractJobId(url: string): string | null {
-  const m = url.match(/\/jobs\/(\d+)|\/postings\/(\d+)/);
-  return m?.[1] ?? m?.[2] ?? null;
+  const m = pathnameFor(url).match(/\/(?:jobs|postings|job-search)\/(\d+)(?:\/|$)/);
+  return m?.[1] ?? null;
 }
 
 function isOnJobDetailPage(): boolean {
-  return extractJobId(window.location.href) !== null;
+  return /\/(?:jobs|postings)\/\d+(?:\/|$)/.test(pathnameFor(window.location.href));
 }
 
 // ─── DOM helpers ──────────────────────────────────────────────────────────────
@@ -316,9 +332,23 @@ function isOnJobDetailPage(): boolean {
 // These selectors should be stable across visual redesigns.
 // If Handshake changes their markup, update the selectors in each helper below.
 
+function isElementVisible(el: HTMLElement): boolean {
+  if (el.closest("[hidden],[aria-hidden='true']")) return false;
+  const style = window.getComputedStyle(el);
+  if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse") {
+    return false;
+  }
+  const rect = el.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+}
+
+function visibleButtons(root: ParentNode = document): HTMLButtonElement[] {
+  return Array.from(root.querySelectorAll<HTMLButtonElement>("button")).filter(isElementVisible);
+}
+
 function findButtonByText(candidates: string[]): HTMLButtonElement | null {
   return (
-    Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((b) => {
+    visibleButtons().find((b) => {
       const t = (b.textContent ?? "").trim().toLowerCase();
       return candidates.some((c) => t === c || t.startsWith(c));
     }) ?? null
@@ -327,7 +357,7 @@ function findButtonByText(candidates: string[]): HTMLButtonElement | null {
 
 function buttonByTextWithin(root: ParentNode, candidates: string[]): HTMLButtonElement | null {
   return (
-    Array.from(root.querySelectorAll<HTMLButtonElement>("button")).find((b) => {
+    visibleButtons(root).find((b) => {
       const t = (b.textContent ?? "").trim().toLowerCase();
       return candidates.some((c) => t === c || t.startsWith(c));
     }) ?? null
@@ -338,14 +368,14 @@ function findApplyButton(): HTMLButtonElement | null {
   const hooked = document.querySelector<HTMLButtonElement>(
     '[data-hook="apply-button"],[data-hook="easy-apply-button"],[data-hook="1-click-apply-button"]'
   );
-  if (hooked && !hooked.disabled) return hooked;
+  if (hooked && isElementVisible(hooked) && !hooked.disabled) return hooked;
 
   const byText = findButtonByText(["easy apply", "apply now", "1-click apply", "quick apply"]);
   if (byText && !byText.disabled) return byText;
 
   // Last resort: any enabled button with "apply" in its text that isn't "Apply Externally"
   return (
-    Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((b) => {
+    visibleButtons().find((b) => {
       const t = (b.textContent ?? "").trim().toLowerCase();
       return t.includes("apply") && !t.includes("externally") && !b.disabled;
     }) ?? null
@@ -353,28 +383,25 @@ function findApplyButton(): HTMLButtonElement | null {
 }
 
 function isAlreadyApplied(): boolean {
-  if (
-    document.querySelector(
-      '[data-hook="applied-badge"],[aria-label="Applied"],[class*="applied-badge" i]'
-    )
-  )
-    return true;
+  const badge = document.querySelector<HTMLElement>(
+    '[data-hook="applied-badge"],[aria-label="Applied"],[class*="applied-badge" i]'
+  );
+  if (badge && isElementVisible(badge)) return true;
 
   return !!findButtonByText(["applied", "application submitted", "withdraw application"]);
 }
 
 function isExternalApply(): boolean {
-  if (document.querySelector('[data-hook="apply-externally-button"]')) return true;
+  const hooked = document.querySelector<HTMLElement>('[data-hook="apply-externally-button"]');
+  if (hooked && isElementVisible(hooked)) return true;
   return !!findButtonByText(["apply externally", "apply on company site", "external application"]);
 }
 
 function hasScreeningQuestions(): boolean {
-  if (
-    document.querySelector(
-      '[data-hook="screening-questions"],[data-hook="application-questions"],[class*="ScreeningQuestion" i]'
-    )
-  )
-    return true;
+  const section = document.querySelector<HTMLElement>(
+    '[data-hook="screening-questions"],[data-hook="application-questions"],[class*="ScreeningQuestion" i]'
+  );
+  if (section && isElementVisible(section)) return true;
   return !!findShortTextEl(/screening questions/i, 40);
 }
 
@@ -386,6 +413,7 @@ function findShortTextEl(re: RegExp, maxLen = 80, root: ParentNode = document): 
     Array.from(
       root.querySelectorAll<HTMLElement>("h1,h2,h3,h4,h5,h6,label,div,span,p,strong")
     ).find((el) => {
+      if (!isElementVisible(el)) return false;
       const t = (el.textContent ?? "").trim();
       return t.length > 0 && t.length < maxLen && re.test(t);
     }) ?? null
@@ -467,33 +495,60 @@ async function processCurrentJobPage(jobUrl: string, explicitId?: string): Promi
   const jobId = explicitId ?? extractJobId(jobUrl) ?? extractJobId(window.location.href) ?? "unknown";
   const { title, company } = extractJobMeta();
   const base = { handshakeJobId: jobId, jobUrl, title, company };
+  const finish = (result: JobResult, decision: string): JobResult => {
+    sendDebugLog("job-decision", {
+      decision,
+      result,
+      currentUrl: window.location.href,
+      selectedJobId: extractJobId(window.location.href),
+      route: routeKind()
+    });
+    return result;
+  };
 
+  const alreadyApplied = isAlreadyApplied();
+  const externalApply = isExternalApply();
+  const screeningQuestions = hasScreeningQuestions();
+  const applyBtn = findApplyButton();
+  const gates = {
+    alreadyApplied,
+    externalApply,
+    screeningQuestions,
+    applyButtonFound: !!applyBtn,
+    applyButtonText: applyBtn?.textContent?.trim() || null,
+    applyButtonDisabled: applyBtn?.disabled ?? null,
+    totalButtonsOnPage: document.querySelectorAll("button").length,
+    visibleButtonsSample: dumpButtonTexts().slice(0, 20)
+  };
   group(`processCurrentJobPage: ${title} @ ${company} (job ${jobId})`);
   log("url", window.location.href);
-  log("gates", {
-    alreadyApplied: isAlreadyApplied(),
-    externalApply: isExternalApply(),
-    screeningQuestions: hasScreeningQuestions(),
-    applyButtonFound: !!findApplyButton(),
-    totalButtonsOnPage: document.querySelectorAll("button").length
-  });
+  log("gates", gates);
   groupEnd();
+  sendDebugLog("job-gates", {
+    jobId,
+    jobUrl,
+    currentUrl: window.location.href,
+    title,
+    company,
+    gates
+  });
 
-  if (isAlreadyApplied()) return { ...base, status: "SKIPPED", skipReason: "ALREADY_APPLIED" };
-  if (jobId !== "unknown" && (await duplicateInDb(jobId))) {
-    log(`job ${jobId} already has a local applied/open-application record; skipping before Apply.`);
-    return { ...base, status: "SKIPPED", skipReason: "DUPLICATE_IN_DB" };
+  if (alreadyApplied) {
+    return finish({ ...base, status: "SKIPPED", skipReason: "ALREADY_APPLIED" }, "already-applied-dom");
   }
-  if (isExternalApply()) return { ...base, status: "SKIPPED", skipReason: "APPLY_EXTERNALLY" };
+  if (externalApply) {
+    return finish({ ...base, status: "SKIPPED", skipReason: "APPLY_EXTERNALLY" }, "external-apply");
+  }
   // NOTE: screening questions are no longer a pre-apply skip — they live INSIDE
   // the apply modal, so we click Apply first, then answer them below.
 
-  const applyBtn = findApplyButton();
   if (!applyBtn) {
     warn("No apply button matched. Button texts on page:", dumpButtonTexts());
-    return { ...base, status: "SKIPPED", skipReason: "NO_APPLY_BUTTON" };
+    return finish({ ...base, status: "SKIPPED", skipReason: "NO_APPLY_BUTTON" }, "no-apply-button");
   }
-  if (applyBtn.disabled) return { ...base, status: "SKIPPED", skipReason: "DISABLED_BUTTON" };
+  if (applyBtn.disabled) {
+    return finish({ ...base, status: "SKIPPED", skipReason: "DISABLED_BUTTON" }, "disabled-apply-button");
+  }
 
   // Scrape the job NOW (before the apply modal opens) so the cover-letter agent
   // gets a clean job description, not the modal's text.
@@ -501,6 +556,13 @@ async function processCurrentJobPage(jobUrl: string, explicitId?: string): Promi
 
   try {
     log(`clicking apply button: "${(applyBtn.textContent ?? "").trim()}"`);
+    sendDebugLog("apply-click", {
+      jobId,
+      title,
+      company,
+      buttonText: (applyBtn.textContent ?? "").trim(),
+      currentUrl: window.location.href
+    });
     applyBtn.click();
     // Proceed as soon as the apply modal renders, not after a fixed guess.
     await waitForApplyModal(6000);
@@ -511,14 +573,17 @@ async function processCurrentJobPage(jobUrl: string, explicitId?: string): Promi
     const transcriptOutcome = await attachStoredTranscript();
     if (transcriptOutcome === "no-transcript-on-file" || transcriptOutcome === "failed") {
       dismissOpenDialog();
-      return { ...base, status: "SKIPPED", skipReason: "TRANSCRIPT_REQUIRED" };
+      return finish(
+        { ...base, status: "SKIPPED", skipReason: "TRANSCRIPT_REQUIRED" },
+        `transcript-${transcriptOutcome}`
+      );
     }
 
     // The apply modal may require documents beyond the resume that we can't
     // auto-fill ("Attach other required documents"). Hand control to the user
     // (or a remembered choice) instead of silently failing.
     if (hasOtherRequiredDocs()) {
-      return await handleOtherRequiredDocs(base, job);
+      return finish(await handleOtherRequiredDocs(base, job), "other-required-docs");
     }
 
     // Screening questions (Yes/No radios) live in the apply modal. Answer them
@@ -529,7 +594,10 @@ async function processCurrentJobPage(jobUrl: string, explicitId?: string): Promi
       if (!outcome.ok) {
         log(`screening questions unanswerable (${outcome.reason}); skipping job.`);
         dismissOpenDialog();
-        return { ...base, status: "SKIPPED", skipReason: "SCREENING_QUESTIONS" };
+        return finish(
+          { ...base, status: "SKIPPED", skipReason: "SCREENING_QUESTIONS" },
+          `screening-${outcome.reason ?? "unanswerable"}`
+        );
       }
       log(`answered ${outcome.answered} screening question(s).`);
       await sleep(600);
@@ -540,7 +608,7 @@ async function processCurrentJobPage(jobUrl: string, explicitId?: string): Promi
     // submit (it's the user's "ok to submit" gate), so it returns a terminal
     // result rather than falling through to the generic submit below.
     if (hasCoverLetterUpload()) {
-      return await handleCoverLetterRequest(base, job);
+      return finish(await handleCoverLetterRequest(base, job), "cover-letter-flow");
     }
 
     // Submit the application. Handshake's document upload can take a moment to
@@ -552,18 +620,18 @@ async function processCurrentJobPage(jobUrl: string, explicitId?: string): Promi
     const outcome = await clickSubmitAndConfirm("apply");
     if (outcome === "duplicate") {
       dismissOpenDialog();
-      return { ...base, status: "SKIPPED", skipReason: "ALREADY_APPLIED" };
+      return finish({ ...base, status: "SKIPPED", skipReason: "ALREADY_APPLIED" }, "submit-duplicate");
     }
     if (outcome === "incomplete") {
       dismissOpenDialog();
-      return { ...base, status: "SKIPPED", skipReason: "SUBMIT_INCOMPLETE" };
+      return finish({ ...base, status: "SKIPPED", skipReason: "SUBMIT_INCOMPLETE" }, "submit-incomplete");
     }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "Unexpected error clicking apply";
-    return { ...base, status: "FAILED", errorMessage };
+    return finish({ ...base, status: "FAILED", errorMessage }, "apply-error");
   }
 
-  return { ...base, status: "APPLIED" };
+  return finish({ ...base, status: "APPLIED" }, "submitted");
 }
 
 // ─── Screening questions ──────────────────────────────────────────────────────
@@ -571,8 +639,8 @@ async function processCurrentJobPage(jobUrl: string, explicitId?: string): Promi
 // radios (e.g. "Are you authorized to work in the United States?", "Are you
 // located in or willing to relocate to Miami?"). We answer them from the user's
 // stored prefs. We only handle questions we can answer with confidence (work
-// authorization + location/relocation); anything else makes us skip the job
-// rather than guess.
+// authorization, software/technical degree, English, and location/relocation);
+// anything else makes us skip the job rather than guess.
 
 interface ScreeningOutcome {
   ok: boolean;
@@ -594,8 +662,16 @@ function screeningSection(): HTMLElement {
     '[data-hook="screening-questions"],[data-hook="application-questions"]'
   );
   if (byHook) return byHook;
-  const heading = findShortTextEl(/screening questions/i, 40);
-  return heading?.parentElement?.parentElement ?? heading?.parentElement ?? document.body;
+  const root = findApplyModalRoot() ?? document.body;
+  const heading = findShortTextEl(/screening questions/i, 40, root);
+  if (!heading) return root;
+
+  let node: HTMLElement | null = heading;
+  for (let hops = 0; hops < 8 && node; hops++, node = node.parentElement) {
+    const text = (node.textContent ?? "").replace(/\s+/g, " ");
+    if (text.includes("?") && collectYesNoOptions(node).length >= 2) return node;
+  }
+  return heading.parentElement?.parentElement ?? heading.parentElement ?? root;
 }
 
 // The human-readable label for a Yes/No control — used to tell the two apart.
@@ -707,6 +783,26 @@ function decideScreeningAnswer(questionText: string): "yes" | "no" | null {
     return screeningPrefs.usWorkAuthorized ? "yes" : "no";
   }
 
+  // Degree / major questions in software engineering or closely related
+  // technical programs. Keep this narrow so we don't answer unrelated degree
+  // requirements (business, design, nursing, etc.) with the software-engineering
+  // preference.
+  if (
+    /(degree|major|minor|stud(y|ying)|pursu(e|ing)|enrolled|student|bachelor|master|phd|graduate)/.test(q) &&
+    /(software engineering|computer science|\bcs\b|computer engineering|data science|information systems|informatics|software|computing|computer|engineering)/.test(q)
+  ) {
+    return screeningPrefs.softwareEngineeringDegree ? "yes" : "no";
+  }
+
+  // English-language ability.
+  if (
+    /(speak|read|write|communicat|fluen|proficien|language).{0,80}english|english.{0,80}(speak|read|write|communicat|fluen|proficien|language)/.test(
+      q
+    )
+  ) {
+    return screeningPrefs.speaksEnglish ? "yes" : "no";
+  }
+
   // Location / relocation / commute.
   if (/reloca|located\s+in|location|commut|willing\s+to\s+(relocate|travel|work|move)|based\s+(in|out)|work\s+(on-?site|onsite|in[\s-]person)/.test(q)) {
     if (screeningPrefs.relocateAnywhere) return "yes";
@@ -751,6 +847,7 @@ function answerScreeningQuestions(): ScreeningOutcome {
   const section = screeningSection();
   const groups = buildAnswerGroups(section);
   log(`screening: found ${groups.length} question group(s).`);
+  const decisions: Array<{ question: string; decision: "yes" | "no" | null; hasTarget: boolean }> = [];
 
   if (groups.length === 0) {
     dumpScreening(section, "no-question-groups-found");
@@ -762,6 +859,7 @@ function answerScreeningQuestions(): ScreeningOutcome {
   for (const g of groups) {
     const decision = decideScreeningAnswer(g.questionText);
     const target = decision === "yes" ? g.yesEl : decision === "no" ? g.noEl : null;
+    decisions.push({ question: g.questionText, decision, hasTarget: !!target });
     if (!decision || !target) {
       unanswered.push(g.questionText);
       continue;
@@ -770,6 +868,16 @@ function answerScreeningQuestions(): ScreeningOutcome {
     clickScreeningOption(target);
     answered++;
   }
+
+  sendDebugLog("screening-answers", {
+    answered,
+    total: groups.length,
+    decisions: decisions.map((d) => ({
+      question: d.question.slice(0, 180),
+      decision: d.decision,
+      hasTarget: d.hasTarget
+    }))
+  });
 
   if (unanswered.length > 0) {
     dumpScreening(section, `unanswered: ${unanswered.join(" | ").slice(0, 400)}`);
@@ -780,7 +888,21 @@ function answerScreeningQuestions(): ScreeningOutcome {
 
 // ─── Background communication ─────────────────────────────────────────────────
 
+function sendDebugLog(label: string, payload: unknown): void {
+  log(label, payload);
+  void chrome.runtime
+    .sendMessage({ type: "content/debug-log", label, payload })
+    .catch((err) => {
+      noteExtensionContextInvalidated(err);
+    });
+}
+
 async function reportJobResult(runId: string, result: JobResult): Promise<boolean> {
+  sendDebugLog("job-result-report", {
+    runId,
+    result,
+    currentUrl: window.location.href
+  });
   try {
     const response = await chrome.runtime.sendMessage({
       type: "content/job-processed",
@@ -788,11 +910,29 @@ async function reportJobResult(runId: string, result: JobResult): Promise<boolea
       result
     });
     if (response && typeof response === "object" && "shouldStop" in response) {
-      return !(response as { shouldStop: boolean }).shouldStop;
+      const shouldStop = (response as { shouldStop: boolean }).shouldStop;
+      sendDebugLog("job-result-report-response", {
+        runId,
+        handshakeJobId: result.handshakeJobId,
+        shouldStop,
+        response
+      });
+      return !shouldStop;
     }
+    sendDebugLog("job-result-report-response", {
+      runId,
+      handshakeJobId: result.handshakeJobId,
+      shouldStop: false,
+      response
+    });
     return true;
   } catch (err) {
     noteExtensionContextInvalidated(err);
+    sendDebugLog("job-result-report-error", {
+      runId,
+      handshakeJobId: result.handshakeJobId,
+      error: err instanceof Error ? err.message : String(err)
+    });
     return false;
   }
 }
@@ -812,25 +952,6 @@ async function reportRunComplete(
   } catch (err) {
     noteExtensionContextInvalidated(err);
     // Background may have restarted; nothing to do here
-  }
-}
-
-async function duplicateInDb(handshakeJobId: string): Promise<boolean> {
-  try {
-    const response = await chrome.runtime.sendMessage({
-      type: "runtime/check-duplicate",
-      handshakeJobId
-    });
-    return !!(
-      response &&
-      typeof response === "object" &&
-      "duplicate" in response &&
-      (response as { duplicate: boolean }).duplicate
-    );
-  } catch (err) {
-    if (noteExtensionContextInvalidated(err)) return true;
-    warn(`duplicate check failed for job ${handshakeJobId}; continuing with DOM checks`, err);
-    return false;
   }
 }
 
@@ -881,9 +1002,9 @@ async function continueSessionRun(): Promise<void> {
       `continueSessionRun: resuming in-place list run ${session.runId} ` +
         `(${session.seenIds?.length ?? 0} seen, ${session.processed ?? 0} processed).`
     );
-    if (session.screening) screeningPrefs = session.screening;
+    if (session.screening) screeningPrefs = normalizeScreeningPrefs(session.screening);
     inPlaceStop = false;
-    otherDocsRemembered = null;
+    otherDocsRemembered = session.otherDocsRemembered ?? null;
     setTimeout(
       () =>
         void runListInPlace(session.runId, session.settings, {
@@ -909,7 +1030,8 @@ async function continueSessionRun(): Promise<void> {
       await reportRunComplete(session.runId, "FAILED", "Detail run resumed away from a job detail page.");
       return;
     }
-    if (session.screening) screeningPrefs = session.screening;
+    if (session.screening) screeningPrefs = normalizeScreeningPrefs(session.screening);
+    otherDocsRemembered = session.otherDocsRemembered ?? null;
     setTimeout(() => void runCurrentDetailOnce(session.runId, session.settings), 400);
     return;
   }
@@ -955,7 +1077,7 @@ interface JobCard {
 // to unrelated jobs. The X dismiss is data-hook="job-hide-button-<id>", the
 // bookmark is "favorite-action | …", and the section footer is
 // "job-result-card-footer" (excluded by the regex requiring "| <digits>").
-function collectJobCards(): JobCard[] {
+function collectJobCards(options?: { quiet?: boolean }): JobCard[] {
   const cards: JobCard[] = [];
   const seen = new Set<string>();
   for (const el of Array.from(
@@ -972,7 +1094,9 @@ function collectJobCards(): JobCard[] {
     const title = (el.textContent ?? "").replace(/\s+/g, " ").trim();
     cards.push({ id, title: title.slice(0, 140), el, isSearch: true });
   }
-  log(`collectJobCards: ${cards.length} left-list cards (job-result-card hooks)`);
+  if (!options?.quiet) {
+    log(`collectJobCards: ${cards.length} left-list cards (job-result-card hooks)`);
+  }
   return cards;
 }
 
@@ -1036,7 +1160,8 @@ async function waitForJobDetailReady(timeoutMs = 6000): Promise<void> {
 
 // Close any application modal/dialog that's open so the next card's detail shows.
 function dismissOpenDialog(): void {
-  const closeBtn = document.querySelector<HTMLElement>(
+  const applyModal = findApplyModalRoot();
+  const closeBtn = (applyModal ?? document).querySelector<HTMLElement>(
     '[data-hook="modal-close"],[aria-label="Close"],[aria-label="close"],button[class*="close" i]'
   );
   if (closeBtn) {
@@ -1048,7 +1173,7 @@ function dismissOpenDialog(): void {
   );
 }
 
-// One-time dump of the first few cards' structure to the backend log so we can
+// One-time dump of the first few cards' structure to the extension console so we can
 // verify Handshake's real list markup and refine click selectors if needed.
 function dumpListCards(cards: JobCard[]): void {
   const sample = cards.slice(0, 8).map((c) => {
@@ -1153,6 +1278,13 @@ async function selectCard(card: JobCard): Promise<boolean> {
   // First card is pre-selected on load — already showing, nothing to click.
   if (onThisCard()) {
     log(`card ${card.id} already selected (URL match); processing without a click.`);
+    sendDebugLog("card-select", {
+      id: card.id,
+      title: card.title,
+      selected: true,
+      alreadySelected: true,
+      currentUrl: window.location.href
+    });
     return true;
   }
 
@@ -1195,11 +1327,26 @@ async function selectCard(card: JobCard): Promise<boolean> {
         `card ${card.id} "${card.title.slice(0, 50)}" selected via ` +
           `<${target.tagName.toLowerCase()}${target.getAttribute("data-hook") ? ` data-hook=${target.getAttribute("data-hook")}` : ""}>.`
       );
+      sendDebugLog("card-select", {
+        id: card.id,
+        title: card.title,
+        selected: true,
+        alreadySelected: false,
+        targetTag: target.tagName,
+        targetHook: target.getAttribute("data-hook"),
+        currentUrl: window.location.href
+      });
       return true;
     }
   }
 
   warn(`could not select card ${card.id}: URL never became /job-search/${card.id}. Dumping its DOM.`);
+  sendDebugLog("card-select", {
+    id: card.id,
+    title: card.title,
+    selected: false,
+    currentUrl: window.location.href
+  });
   dumpSelectMiss(card);
   return false;
 }
@@ -1459,10 +1606,8 @@ async function goToNextPage(): Promise<boolean> {
   return true;
 }
 
-// Forward a walker decision (scroll attempt, end-of-page, next-page result, why
-// it finalized) to backend.log. The walk's control-flow logs were console-only,
-// so when the bot "stops after N jobs" there was no way to see why without reading
-// the Handshake tab console. This makes the stop reason visible in backend.log.
+// Forward a walker decision to the background worker's console. These diagnostics
+// remain local to Chrome and are not persisted by the backend.
 function dumpWalker(event: string, payload: Record<string, unknown>): void {
   log(`walker:${event}`, payload);
   void chrome.runtime
@@ -1719,31 +1864,60 @@ function base64ToUint8Array(b64: string): Uint8Array {
 // renders a hidden <input type="file"> behind the "Upload new" button; the resume
 // section has its own (already populated) input, so we must not target that one.
 function findCoverLetterFileInput(): HTMLInputElement | null {
-  const inputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="file"]'));
+  const root = findApplyModalRoot() ?? document;
+  const inputs = Array.from(root.querySelectorAll<HTMLInputElement>('input[type="file"]'));
   if (inputs.length === 0) return null;
+
+  // Handshake gives this input a stable semantic name such as
+  // "file-Cover Letter". Prefer that over positional guesses because React can
+  // leave hidden inputs from a previous/remounted modal in the document.
+  const named = inputs.find(inputLooksLikeCoverLetter);
+  if (named) return named;
 
   // 1) Anchor on the "cover letter" heading and take the nearest file input within
   //    its surrounding container.
-  const heading = Array.from(document.querySelectorAll<HTMLElement>("h1,h2,h3,h4,h5,label,div,span,p")).find(
+  const heading = Array.from(root.querySelectorAll<HTMLElement>("h1,h2,h3,h4,h5,label,div,span,p")).find(
     (el) => /attach your cover letter|cover letter/i.test((el.textContent ?? "").trim()) &&
       (el.textContent ?? "").trim().length < 60
   );
   if (heading) {
     let container: HTMLElement | null = heading;
     for (let hops = 0; hops < 5 && container; hops++) {
-      const candidate = container.querySelector<HTMLInputElement>('input[type="file"]');
+      const candidates = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="file"]'));
+      const afterHeading = candidates.filter((candidate) =>
+        !!(heading.compareDocumentPosition(candidate) & Node.DOCUMENT_POSITION_FOLLOWING)
+      );
+      const candidate =
+        afterHeading.find((i) => !i.files || i.files.length === 0) ??
+        afterHeading[0] ??
+        null;
       if (candidate) return candidate;
       container = container.parentElement;
     }
   }
 
-  // 2) Otherwise prefer an EMPTY input (the resume one already holds a file).
+  // 2) Otherwise prefer an EMPTY input (the resume one usually already holds a file).
   const empty = inputs.find((i) => !i.files || i.files.length === 0);
   if (empty) return empty;
 
   // 3) Last resort: the last file input — the cover-letter section sits below the
   //    resume section in the modal.
   return inputs[inputs.length - 1];
+}
+
+function inputLooksLikeCoverLetter(input: HTMLInputElement): boolean {
+  const fingerprint = [
+    input.name,
+    input.id,
+    input.getAttribute("aria-label"),
+    input.getAttribute("data-hook"),
+    input.getAttribute("data-testid")
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase()
+    .replace(/[^a-z]/g, "");
+  return fingerprint.includes("coverletter");
 }
 
 function setFileOnInput(input: HTMLInputElement, file: File): void {
@@ -1772,17 +1946,37 @@ function findApplyModalRoot(): HTMLElement | null {
   const dialogs = Array.from(
     document.querySelectorAll<HTMLElement>('[role="dialog"],[aria-modal="true"]')
   );
-  return (
-    dialogs.find((dialog) => {
-      const text = (dialog.innerText ?? dialog.textContent ?? "").replace(/\s+/g, " ").toLowerCase();
+  const dialog =
+    dialogs.find((candidate) => {
+      const text = (candidate.innerText ?? candidate.textContent ?? "").replace(/\s+/g, " ").toLowerCase();
       if (/it.?s better on the app|everything the website does/i.test(text)) return false;
       return (
         /submit application|cover letter|transcript|screening questions|application questions|other required documents/.test(
           text
-        ) || !!buttonByTextWithin(dialog, ["submit application", "submit & continue"])
+        ) || !!buttonByTextWithin(candidate, ["submit application", "submit & continue"])
       );
-    }) ?? null
-  );
+    }) ?? null;
+  if (dialog) return dialog;
+
+  // Some Handshake releases mount the application as a form without dialog
+  // semantics. Recover its root from a distinctive document picker and require a
+  // visible submit control so a hidden, stale picker from a closed modal does not
+  // masquerade as the active application.
+  const picker = Array.from(
+    document.querySelectorAll<HTMLElement>(
+      '[data-hook="apply-modal-document-search"],input[type="file"],input[placeholder]'
+    )
+  ).find((el) => {
+    if (el instanceof HTMLInputElement && inputLooksLikeCoverLetter(el)) return true;
+    return /cover letter|transcript/i.test(
+      `${el.getAttribute("placeholder") ?? ""} ${el.textContent ?? ""}`
+    );
+  });
+  let node: HTMLElement | null = picker ?? null;
+  for (let hops = 0; hops < 10 && node; hops++, node = node.parentElement) {
+    if (buttonByTextWithin(node, ["submit application", "submit & continue"])) return node;
+  }
+  return null;
 }
 
 function findSubmitOrConfirm(): HTMLButtonElement | null {
@@ -1806,21 +2000,19 @@ function findSubmitOrConfirm(): HTMLButtonElement | null {
 // Submit, recording APPLIED for applications still sitting in a filled, open modal
 // (the cover-letter PDF attached but never submitted). The two positive checks are
 // now scoped to the modal so background text can't trip them.
-function applicationLooksSubmitted(allowModalClosedSuccess = false): boolean {
+function applicationLooksSubmitted(afterSubmitClick = false): boolean {
   const modal = findApplyModalRoot();
   const submit = findSubmitOrConfirm();
+  const successText =
+    /application submitted|successfully applied|you have applied|application sent|application received|thanks for applying|your application (?:has been |was )?(?:submitted|sent|received)/i;
 
   // Positive confirmation, scoped to the modal when one is open. If the modal is
   // gone, body-level success text only counts after a submit/confirm click; before
   // that, it could be a stale toast or unrelated page text.
   const scope = modal ?? document.body;
   if (
-    (modal || allowModalClosedSuccess) &&
-    findShortTextEl(
-      /application submitted|successfully applied|you have applied|application sent|application received|thanks for applying|your application (?:has been |was )?(?:submitted|sent|received)/i,
-      90,
-      scope
-    )
+    (modal || afterSubmitClick) &&
+    findShortTextEl(successText, 90, scope)
   )
     return true;
   if (
@@ -1831,6 +2023,14 @@ function applicationLooksSubmitted(allowModalClosedSuccess = false): boolean {
       buttonByTextWithin(modal, ["applied", "application submitted", "withdraw application"]))
   )
     return true;
+
+  // Handshake currently leaves the filled apply modal mounted after a successful
+  // submission while changing the current job action to "Withdraw application".
+  // Once this helper has actually clicked Submit, that job-level state is
+  // authoritative even if the stale modal still contains an enabled button.
+  // Do not trust a body-level success toast here because a previous job's toast
+  // can remain visible briefly while the next job opens.
+  if (afterSubmitClick && isAlreadyApplied()) return true;
 
   // Open modal with an actionable submit/confirm → not submitted yet. This check
   // intentionally comes AFTER the scoped applied/withdraw checks above: Handshake
@@ -1844,7 +2044,7 @@ function applicationLooksSubmitted(allowModalClosedSuccess = false): boolean {
   // control. Before the click, "no modal and no submit" can also mean our apply
   // modal selector missed Handshake's DOM, or the modal never opened; counting that
   // as success would create a false APPLIED record.
-  if (allowModalClosedSuccess && !modal && !submit) return true;
+  if (afterSubmitClick && !modal && !submit) return true;
 
   return false;
 }
@@ -1859,16 +2059,14 @@ function visibleSnippet(el: HTMLElement | null, max = 220): string | null {
 // applications on the same job." It renders OUTSIDE the apply modal, so the
 // modal-scoped applicationLooksSubmitted()/submitBlockingMessages() never see it —
 // and clickSubmitAndConfirm would otherwise keep clicking Submit, each click
-// stacking another error toast. Seeing it means an application already exists, so
-// callers stop and record the job as already-applied instead of retrying.
-function duplicateApplicationError(): boolean {
+// stacking another error toast. The submit helper snapshots pre-existing alerts
+// so a stale toast from the previous job cannot block the current job.
+function duplicateApplicationAlertElements(): HTMLElement[] {
   const re =
-    /multiple open applications|already have an open application|you (?:have )?already applied|already applied to this|application already exists/i;
-  const alerts = Array.from(
+    /multiple open applications|cannot apply to one job multiple times|one job multiple times|already have an open application|you (?:have )?already applied|already applied to this|application already exists/i;
+  return Array.from(
     document.querySelectorAll<HTMLElement>('[role="alert"],[aria-live]')
-  );
-  if (alerts.some((el) => re.test(el.textContent ?? ""))) return true;
-  return !!findShortTextEl(re, 200);
+  ).filter((el) => isElementVisible(el) && re.test(el.textContent ?? ""));
 }
 
 function submitBlockingMessages(): string[] {
@@ -1886,7 +2084,7 @@ function submitBlockingMessages(): string[] {
     .filter((text): text is string => !!text);
   // Handshake's submit-rejection toasts (e.g. "multiple open applications")
   // render OUTSIDE the modal, so also sweep top-level alert/live regions when a
-  // modal is open — otherwise the decisive error never reaches backend.log.
+  // modal is open — otherwise the decisive error never reaches the diagnostics.
   if (dialog !== document.body) {
     for (const el of Array.from(
       document.querySelectorAll<HTMLElement>('[role="alert"],[aria-live]')
@@ -1923,10 +2121,7 @@ function dumpSubmitState(
     blockingMessages: submitBlockingMessages(),
     dialogText: visibleSnippet(applyModal, 700)
   };
-  log("submit-state", payload);
-  void chrome.runtime
-    .sendMessage({ type: "content/debug-log", label: "submit-state", payload })
-    .catch(() => {});
+  sendDebugLog("submit-state", payload);
 }
 
 // Submit the open apply modal robustly. Handshake's document upload can take a
@@ -1947,6 +2142,22 @@ type SubmitOutcome = "submitted" | "duplicate" | "incomplete";
 
 async function clickSubmitAndConfirm(label: string): Promise<SubmitOutcome> {
   let everClicked = false;
+  // Handshake leaves success/error toasts from prior jobs mounted in the page.
+  // Only a duplicate-application alert that appears after this helper starts can
+  // describe the current submit attempt.
+  const preexistingDuplicateAlerts = new Set(duplicateApplicationAlertElements());
+  const clearedPreexistingAlerts = new Set<HTMLElement>();
+  const hasNewDuplicateError = () => {
+    const currentAlerts = new Set(duplicateApplicationAlertElements());
+    for (const alert of preexistingDuplicateAlerts) {
+      if (!currentAlerts.has(alert)) clearedPreexistingAlerts.add(alert);
+    }
+    return Array.from(currentAlerts).some(
+      (alert) =>
+        !preexistingDuplicateAlerts.has(alert) ||
+        clearedPreexistingAlerts.has(alert)
+    );
+  };
 
   for (let attempt = 0; attempt < 4; attempt++) {
     // Wait for an enabled submit/confirm. The first wait is generous because a
@@ -1954,17 +2165,8 @@ async function clickSubmitAndConfirm(label: string): Promise<SubmitOutcome> {
     // Handshake enables Submit.
     await waitFor(() => {
       const b = findSubmitOrConfirm();
-      return applicationLooksSubmitted(everClicked) || duplicateApplicationError() || (!!b && !b.disabled);
+      return applicationLooksSubmitted(everClicked) || (!!b && !b.disabled);
     }, attempt === 0 ? 20000 : 6000);
-
-    // An application already exists for this job. Clicking Submit again only
-    // stacks more "multiple open applications" error toasts, so stop here and
-    // report it as already-applied rather than retrying.
-    if (duplicateApplicationError()) {
-      log(`[${label}] Handshake reports an existing open application for this job — already applied; not resubmitting.`);
-      dumpSubmitState(label, false, everClicked, true);
-      return "duplicate";
-    }
 
     if (applicationLooksSubmitted(everClicked)) {
       if (!everClicked) {
@@ -1987,11 +2189,11 @@ async function clickSubmitAndConfirm(label: string): Promise<SubmitOutcome> {
     // duplicate-application rejection) instead of treating the immediate disabled
     // button as a failed application.
     await waitFor(
-      () => applicationLooksSubmitted(everClicked) || duplicateApplicationError(),
+      () => applicationLooksSubmitted(everClicked) || hasNewDuplicateError(),
       attempt === 0 ? 12000 : 8000
     );
 
-    if (duplicateApplicationError()) {
+    if (hasNewDuplicateError()) {
       log(`[${label}] "multiple open applications" rejection after clicking Submit — already applied; stopping.`);
       dumpSubmitState(label, false, everClicked, true);
       return "duplicate";
@@ -2003,8 +2205,8 @@ async function clickSubmitAndConfirm(label: string): Promise<SubmitOutcome> {
   }
 
   if (everClicked && !applicationLooksSubmitted(everClicked)) {
-    await waitFor(() => applicationLooksSubmitted(everClicked) || duplicateApplicationError(), 8000);
-    if (duplicateApplicationError()) {
+    await waitFor(() => applicationLooksSubmitted(everClicked) || hasNewDuplicateError(), 8000);
+    if (hasNewDuplicateError()) {
       log(`[${label}] "multiple open applications" rejection observed while settling — already applied.`);
       dumpSubmitState(label, false, everClicked, true);
       return "duplicate";
@@ -2016,6 +2218,9 @@ async function clickSubmitAndConfirm(label: string): Promise<SubmitOutcome> {
     warn(`[${label}] clicked Submit but the application did not complete (modal still open / Submit re-disabled).`);
   }
   dumpSubmitState(label, submitted, everClicked, false);
+  if (submitted) {
+    dismissOpenDialog();
+  }
   return submitted ? "submitted" : "incomplete";
 }
 
@@ -2027,65 +2232,35 @@ interface AttachResult {
 
 async function attachCoverLetterAndSubmit(pdfBase64: string, filename: string): Promise<AttachResult> {
   group(`attachCoverLetterAndSubmit: ${filename}`);
-  const input = findCoverLetterFileInput();
-  log("cover-letter file input found:", !!input, {
-    fileInputsOnPage: document.querySelectorAll('input[type="file"]').length
-  });
-
-  if (!input) {
-    warn("No file input found for the cover letter. The 'Upload new' control may need a click to reveal it.");
-    // Try clicking an "Upload new" button to surface a hidden input, then retry.
-    const uploadBtn = findButtonByText(["upload new", "upload"]);
-    if (uploadBtn) {
-      uploadBtn.click();
-      await sleep(600);
-    }
-  }
-  const target = input ?? findCoverLetterFileInput();
-  if (!target) {
+  const attached = await attachCoverLetterFile(pdfBase64, filename);
+  if (!attached) {
     groupEnd();
     return {
       attached: false,
       submitted: false,
       message:
-        "Couldn't find the cover-letter upload field in the apply modal. Open the application form (so the cover-letter section is visible), then try again."
+        "The cover-letter PDF was generated, but Handshake did not mark the cover-letter field complete. Check the cover-letter-upload-state logs for the exact field/picker state."
     };
   }
 
-  try {
-    const file = new File([base64ToUint8Array(pdfBase64) as BlobPart], filename, {
-      type: "application/pdf"
-    });
-    setFileOnInput(target, file);
-    log(`attached "${filename}" (${file.size} bytes) to the cover-letter input.`);
-  } catch (err) {
-    groupEnd();
-    return {
-      attached: false,
-      submitted: false,
-      message: err instanceof Error ? err.message : "Failed to attach the cover-letter file."
-    };
+  const outcome = await clickSubmitAndConfirm("cover-letter-popup");
+  groupEnd();
+  if (outcome === "submitted") {
+    return { attached: true, submitted: true, message: "Cover letter attached and application submitted." };
   }
-
-  // Give Handshake time to process the upload and re-validate the form.
-  await sleep(1500);
-
-  const submitBtn = await waitForEnabledSubmit(6000);
-  if (!submitBtn) {
-    groupEnd();
+  if (outcome === "duplicate") {
     return {
       attached: true,
       submitted: false,
-      message:
-        "Cover letter attached, but Submit is still disabled — the application likely has other required fields. Finish them and submit manually."
+      message: "Handshake says this job already has an open application, so the bot did not submit again."
     };
   }
-
-  log(`clicking "${(submitBtn.textContent ?? "").trim()}" to submit the application.`);
-  submitBtn.click();
-  await sleep(1200);
-  groupEnd();
-  return { attached: true, submitted: true, message: "Cover letter attached and application submitted." };
+  return {
+    attached: true,
+    submitted: false,
+    message:
+      "Cover letter attached, but Submit did not complete. Check submit-state and cover-letter-upload-state logs for the remaining blocker."
+  };
 }
 
 // ─── Transcript upload ────────────────────────────────────────────────────────
@@ -2101,7 +2276,8 @@ async function attachCoverLetterAndSubmit(pdfBase64: string, filename: string): 
 // Anchored on a short "transcript" label and climbed up until it also contains an
 // upload/search control, so we can scope the file-input search to it.
 function transcriptSection(): HTMLElement | null {
-  const heading = findShortTextEl(/transcript/i, 60);
+  const root = findApplyModalRoot() ?? document;
+  const heading = findShortTextEl(/transcript/i, 60, root);
   if (!heading) return null;
   let node: HTMLElement | null = heading;
   for (let i = 0; i < 6 && node; i++, node = node.parentElement) {
@@ -2220,16 +2396,26 @@ async function attachStoredTranscript(): Promise<TranscriptOutcome> {
 // Confirmed from live DOM dumps: a freshly-attached cover letter sat at
 // data-status="info" with Submit disabled, while an accepted transcript showed
 // data-status="positive". So matching the filename text alone is NOT acceptance.
-function sectionShowsAccepted(section: HTMLElement): boolean {
-  if (
-    section.querySelector(
+function sectionShowsAccepted(section: HTMLElement, filenameLower?: string): boolean {
+  const sectionText = (section.textContent ?? "").toLowerCase();
+  const filenameStem = filenameLower?.replace(/\.pdf$/i, "");
+  const sectionMatchesFile =
+    !filenameLower ||
+    sectionText.includes(filenameLower) ||
+    (!!filenameStem && sectionText.includes(filenameStem));
+  const positive =
+    sectionMatchesFile &&
+    !!section.querySelector(
       '[data-status="positive"],[data-status="success"],[role="status"][aria-label*="positive" i]'
+    );
+  if (positive) return true;
+
+  const removeControls = Array.from(
+    section.querySelectorAll<HTMLElement>(
+      '[aria-label*="remove" i],[aria-label*="delete" i],[aria-label*="replace" i]'
     )
-  )
-    return true;
-  return !!section.querySelector(
-    '[aria-label*="remove" i],[aria-label*="delete" i],[aria-label*="replace" i]'
   );
+  return sectionMatchesFile && removeControls.length > 0;
 }
 
 // Wait for Handshake to fully accept an uploaded file before we rely on Submit
@@ -2248,7 +2434,7 @@ async function waitForSectionAccepted(
   const lower = filename.toLowerCase();
   return waitFor(() => {
     const sec = getSection() ?? document.body;
-    if (sectionShowsAccepted(sec)) return true;
+    if (sectionShowsAccepted(sec, lower)) return true;
     const hasStatusEl = !!sec.querySelector('[data-status],[role="status"]');
     if (!hasStatusEl) return (sec.textContent ?? "").toLowerCase().includes(lower);
     return false;
@@ -2265,19 +2451,38 @@ async function waitForSectionAccepted(
 
 // The container holding the cover-letter heading and its upload/search control.
 function coverLetterSection(): HTMLElement | null {
-  const heading = findShortTextEl(/cover letter/i, 60);
-  if (!heading) return null;
-  let node: HTMLElement | null = heading;
-  for (let i = 0; i < 6 && node; i++, node = node.parentElement) {
-    const hasControl =
-      node.querySelector('input[type="file"]') ||
-      Array.from(node.querySelectorAll("button")).some((b) => /upload/i.test(b.textContent ?? "")) ||
-      Array.from(node.querySelectorAll("input")).some((i) =>
-        /cover letter/i.test(i.getAttribute("placeholder") ?? "")
-      );
-    if (hasControl) return node;
+  const root = findApplyModalRoot() ?? document;
+  const heading = findShortTextEl(/cover letter/i, 60, root);
+  if (heading) {
+    let node: HTMLElement | null = heading;
+    for (let i = 0; i < 6 && node; i++, node = node.parentElement) {
+      const hasControl =
+        node.querySelector('input[type="file"]') ||
+        Array.from(node.querySelectorAll("button")).some((b) => /upload/i.test(b.textContent ?? "")) ||
+        Array.from(node.querySelectorAll("input")).some((i) =>
+          /cover letter/i.test(i.getAttribute("placeholder") ?? "")
+        );
+      if (hasControl) return node;
+    }
+    return heading.parentElement;
   }
-  return heading.parentElement;
+
+  // Handshake sometimes omits a visible heading but keeps a uniquely named
+  // hidden file input for this document type. Normalize its semantic attributes
+  // rather than relying on one exact selector ("file-Cover Letter", underscores,
+  // generated ids, and casing have all appeared).
+  const namedInput = Array.from(
+    root.querySelectorAll<HTMLInputElement>('input[type="file"]')
+  ).find(inputLooksLikeCoverLetter);
+  const structuralSection = namedInput?.closest<HTMLElement>(
+    'fieldset,section,[role="group"]'
+  );
+  return (
+    structuralSection ??
+    namedInput?.closest<HTMLElement>('[data-hook="apply-modal-document-search"]') ??
+    namedInput?.parentElement ??
+    null
+  );
 }
 
 function hasCoverLetterUpload(): boolean {
@@ -2289,6 +2494,225 @@ function hasCoverLetterUpload(): boolean {
     Array.from(section.querySelectorAll("input")).some((i) =>
       /cover letter/i.test(i.getAttribute("placeholder") ?? "")
     )
+  );
+}
+
+// Cover-letter generation/review can take long enough for Handshake to remount
+// or close its apply form. Before attaching the finished PDF, make sure the same
+// job's live form is still present. If it disappeared, reopen it and restore the
+// transcript/screening prerequisites that normally run before cover-letter
+// handling.
+async function ensureCoverLetterFormReady(expectedJobId?: string): Promise<boolean> {
+  if (coverLetterSection() && findSubmitOrConfirm()) return true;
+
+  const currentJobId = extractJobId(window.location.href);
+  if (expectedJobId && currentJobId && currentJobId !== expectedJobId) {
+    warn(
+      `Cover-letter form disappeared after the selected job changed ` +
+        `(${expectedJobId} → ${currentJobId}); refusing to attach to the wrong job.`
+    );
+    return false;
+  }
+
+  const applyBtn = findApplyButton();
+  if (!applyBtn || applyBtn.disabled) {
+    warn("Cover-letter form disappeared and the current job has no enabled Apply button to reopen it.");
+    return false;
+  }
+
+  log("Cover-letter form was remounted/closed while generating; reopening the current job application.");
+  applyBtn.click();
+  await waitForApplyModal(8000);
+
+  const transcriptOutcome = await attachStoredTranscript();
+  if (transcriptOutcome === "no-transcript-on-file" || transcriptOutcome === "failed") {
+    warn(`Could not restore the reopened cover-letter form (${transcriptOutcome}).`);
+    return false;
+  }
+
+  if (hasScreeningQuestions()) {
+    const screening = answerScreeningQuestions();
+    if (!screening.ok) {
+      warn(`Could not restore screening answers in the reopened cover-letter form (${screening.reason}).`);
+      return false;
+    }
+    await sleep(400);
+  }
+
+  const ready = !!coverLetterSection() && !!findSubmitOrConfirm();
+  if (!ready) {
+    dumpCoverLetterUploadState("reopen-form-not-ready");
+  }
+  return ready;
+}
+
+function fileInputAfterHeading(section: HTMLElement, headingRe: RegExp): HTMLInputElement | null {
+  const heading = findShortTextEl(headingRe, 80, section);
+  const inputs = Array.from(section.querySelectorAll<HTMLInputElement>('input[type="file"]'));
+  if (inputs.length === 0) return null;
+  if (!heading) return inputs.find((i) => !i.files || i.files.length === 0) ?? inputs[inputs.length - 1];
+  const afterHeading = inputs.filter((input) =>
+    !!(heading.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_FOLLOWING)
+  );
+  return afterHeading.find((i) => !i.files || i.files.length === 0) ?? afterHeading[0] ?? null;
+}
+
+function dumpCoverLetterUploadState(note: string, filename?: string, input?: HTMLInputElement | null): void {
+  const section = coverLetterSection();
+  const submit = findSubmitOrConfirm();
+  sendDebugLog("cover-letter-upload-state", {
+    note,
+    filename: filename ?? null,
+    url: window.location.href,
+    sectionFound: !!section,
+    sectionText: visibleSnippet(section, 500),
+    sectionHtml: section?.outerHTML.replace(/\s+/g, " ").slice(0, 2200) ?? null,
+    chosenInput: input
+      ? {
+          name: input.name || null,
+          id: input.id || null,
+          accept: input.getAttribute("accept"),
+          hidden: !isElementVisible(input),
+          disabled: input.disabled,
+          files: input.files?.length ?? 0,
+          ancestry: ancestryHooks(input)
+        }
+      : null,
+    allFileInputs: Array.from((findApplyModalRoot() ?? document).querySelectorAll<HTMLInputElement>('input[type="file"]')).map(
+      (candidate, idx) => ({
+        idx,
+        name: candidate.name || null,
+        id: candidate.id || null,
+        accept: candidate.getAttribute("accept"),
+        hidden: !isElementVisible(candidate),
+        disabled: candidate.disabled,
+        files: candidate.files?.length ?? 0,
+        ancestry: ancestryHooks(candidate)
+      })
+    ),
+    submit: submit ? { text: (submit.textContent ?? "").trim(), disabled: submit.disabled } : null,
+    blockingMessages: submitBlockingMessages()
+  });
+}
+
+function submitIsEnabled(): boolean {
+  const submit = findSubmitOrConfirm();
+  return !!submit && !submit.disabled;
+}
+
+function clickableUploadChoiceTarget(candidate: HTMLElement): HTMLElement {
+  const actionableSelector =
+    'button,[role="button"],[role="option"],[role="menuitem"],label,a,[tabindex]:not([tabindex="-1"])';
+  const actionableSelf = candidate.closest<HTMLElement>(actionableSelector);
+  if (actionableSelf && isElementVisible(actionableSelf)) return actionableSelf;
+
+  const row =
+    candidate.closest<HTMLElement>('li,[role="option"],[role="menuitem"],[data-testid],[class*="option" i],[class*="item" i],[class*="row" i]') ??
+    candidate.parentElement;
+  const rowAction = row
+    ? Array.from(row.querySelectorAll<HTMLElement>(actionableSelector)).find(isElementVisible)
+    : null;
+  return rowAction ?? row ?? candidate;
+}
+
+async function selectUploadedCoverLetterIfNeeded(filename: string): Promise<void> {
+  if (submitIsEnabled()) return;
+
+  const section = coverLetterSection();
+  if (!section) {
+    dumpCoverLetterUploadState("select-uploaded-no-section", filename);
+    return;
+  }
+
+  const lower = filename.toLowerCase();
+  const stem = lower.replace(/\.pdf$/i, "");
+  const candidates = Array.from(
+    section.querySelectorAll<HTMLElement>('button,[role="option"],[role="menuitem"],li,label,div,span')
+  )
+    .filter(isElementVisible)
+    .filter((el) => {
+      const text = (el.textContent ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+      if (!text || (!text.includes(lower) && !text.includes(stem))) return false;
+      if (/remove|delete|replace|upload|search/.test(text)) return false;
+      if (el.closest('[aria-label*="remove" i],[aria-label*="delete" i]')) return false;
+      return true;
+    });
+
+  sendDebugLog("cover-letter-select-uploaded", {
+    filename,
+    candidateCount: candidates.length,
+    candidates: candidates.slice(0, 6).map((el) => ({
+      tag: el.tagName,
+      role: el.getAttribute("role"),
+      text: (el.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 160),
+      ariaLabel: el.getAttribute("aria-label")
+    }))
+  });
+
+  for (const candidate of candidates.slice(0, 4)) {
+    const target = clickableUploadChoiceTarget(candidate);
+    sendDebugLog("cover-letter-select-click", {
+      filename,
+      candidateText: (candidate.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 180),
+      targetTag: target.tagName,
+      targetRole: target.getAttribute("role"),
+      targetText: (target.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 180),
+      targetAriaLabel: target.getAttribute("aria-label")
+    });
+    target.click();
+    await sleep(700);
+    if (submitIsEnabled()) {
+      dumpCoverLetterUploadState("select-uploaded-enabled-submit", filename);
+      return;
+    }
+  }
+
+  const search = Array.from(section.querySelectorAll<HTMLInputElement>("input")).find((input) =>
+    /cover letter/i.test(input.getAttribute("placeholder") ?? "")
+  );
+  if (search) {
+    search.focus();
+    search.value = filename;
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+    search.dispatchEvent(new Event("change", { bubbles: true }));
+    await sleep(900);
+    const options = Array.from(
+      (findApplyModalRoot() ?? document).querySelectorAll<HTMLElement>('[role="option"],[role="menuitem"],li,button')
+    ).filter((el) => {
+      const text = (el.textContent ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+      return isElementVisible(el) && (text.includes(lower) || text.includes(stem));
+    });
+    sendDebugLog("cover-letter-search-options", {
+      filename,
+      optionCount: options.length,
+      options: options.slice(0, 6).map((el) => ({
+        tag: el.tagName,
+        role: el.getAttribute("role"),
+        text: (el.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 160)
+      }))
+    });
+    if (options[0]) {
+      const target = clickableUploadChoiceTarget(options[0]);
+      sendDebugLog("cover-letter-select-click", {
+        filename,
+        candidateText: (options[0].textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 180),
+        targetTag: target.tagName,
+        targetRole: target.getAttribute("role"),
+        targetText: (target.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 180),
+        targetAriaLabel: target.getAttribute("aria-label")
+      });
+      target.click();
+      await sleep(900);
+    }
+  }
+
+  if (!submitIsEnabled()) {
+    await waitFor(() => submitIsEnabled(), 3000);
+  }
+
+  dumpCoverLetterUploadState(
+    submitIsEnabled() ? "select-uploaded-final-submit-enabled" : "select-uploaded-final-submit-disabled",
+    filename
   );
 }
 
@@ -2333,27 +2757,44 @@ async function renderCoverLetterPdf(
 // Returns true only when Handshake fully ACCEPTS the upload (reaches the green
 // "positive" state) — not merely when we set the file — because Submit stays
 // disabled until then.
-async function attachCoverLetterFile(pdfBase64: string, filename: string): Promise<boolean> {
+async function attachCoverLetterFile(
+  pdfBase64: string,
+  filename: string,
+  expectedJobId?: string
+): Promise<boolean> {
+  if (!(await ensureCoverLetterFormReady(expectedJobId))) {
+    dumpCoverLetterUploadState("form-not-ready-before-attach", filename);
+    return false;
+  }
   const section = coverLetterSection();
+  dumpCoverLetterUploadState("before-attach", filename);
+  if (!section) {
+    warn("Could not find the cover-letter section in the apply modal.");
+    dumpUploadWidgets("coverletter-no-section");
+    return false;
+  }
+
   let input =
-    (section ?? document).querySelector<HTMLInputElement>('input[type="file"]') ??
+    fileInputAfterHeading(section, /cover letter/i) ??
     findCoverLetterFileInput();
   if (!input) {
     const uploadBtn = Array.from(
-      (section ?? document).querySelectorAll<HTMLButtonElement>("button")
+      section.querySelectorAll<HTMLButtonElement>("button")
     ).find((b) => /upload/i.test(b.textContent ?? ""));
     if (uploadBtn) {
       log("clicking the cover-letter section's 'Upload new' to reveal its file input.");
+      dumpCoverLetterUploadState("before-upload-button-click", filename);
       uploadBtn.click();
       await sleep(600);
     }
     input =
-      (section ?? document).querySelector<HTMLInputElement>('input[type="file"]') ??
+      (coverLetterSection() ? fileInputAfterHeading(coverLetterSection() as HTMLElement, /cover letter/i) : null) ??
       findCoverLetterFileInput();
   }
   if (!input) {
     warn("Could not find the cover-letter file input in the apply modal.");
     dumpUploadWidgets("coverletter-no-input");
+    dumpCoverLetterUploadState("no-input", filename);
     return false;
   }
   try {
@@ -2362,13 +2803,19 @@ async function attachCoverLetterFile(pdfBase64: string, filename: string): Promi
     });
     setFileOnInput(input, file);
     log(`attached cover letter "${filename}" (${file.size} bytes) to the apply modal.`);
+    dumpCoverLetterUploadState("after-set-file", filename, input);
   } catch (err) {
     warn("failed to attach the cover-letter file", err);
+    dumpCoverLetterUploadState("set-file-error", filename, input);
     return false;
   }
   await sleep(800); // brief settle before polling for the accepted state
   const accepted = await waitForSectionAccepted(coverLetterSection, filename);
+  dumpCoverLetterUploadState(accepted ? "accepted" : "not-accepted", filename, input);
   dumpUploadWidgets(accepted ? "coverletter-accepted" : "coverletter-not-accepted");
+  if (accepted) {
+    await selectUploadedCoverLetterIfNeeded(filename);
+  }
   return accepted;
 }
 
@@ -2580,7 +3027,11 @@ async function handleCoverLetterRequest(
     dismissOpenDialog();
     return { ...base, status: "SKIPPED", skipReason: "COVER_LETTER_FAILED" };
   }
-  const accepted = await attachCoverLetterFile(pdf.base64, pdf.filename);
+  const accepted = await attachCoverLetterFile(
+    pdf.base64,
+    pdf.filename,
+    base.handshakeJobId
+  );
   if (!accepted) {
     warn("Cover letter uploaded but Handshake never accepted it (stuck in the processing state).");
     dumpUploadWidgets("coverletter-never-accepted");
@@ -2612,8 +3063,20 @@ async function handleCoverLetterRequest(
 type OtherDocsAction = "agent" | "save" | "blank" | "skip" | "stop";
 
 // Remembered choice for the current run (set when the user ticks "remember").
-// Reset at the start of each run in handleStartRun.
+// Also persisted in RunSession so it survives page reloads and route changes.
 let otherDocsRemembered: OtherDocsAction | null = null;
+
+async function rememberOtherDocsAction(action: OtherDocsAction): Promise<void> {
+  otherDocsRemembered = action;
+  try {
+    const session = await getSession();
+    if (!session || session.shouldStop) return;
+    await saveSession({ ...session, otherDocsRemembered: action });
+  } catch (err) {
+    // Keep the in-memory behavior working even if session persistence fails.
+    warn(`Could not persist remembered other-documents choice "${action}".`, err);
+  }
+}
 
 // A verified minimal valid 1-page blank PDF (see commit notes). Used for the
 // "submit with a blank PDF" option so we don't need a backend round-trip
@@ -2625,14 +3088,22 @@ const BLANK_PDF_BASE64 =
 // Anchors on the section heading, then prefers an empty input (the resume's is
 // already filled), then the last input.
 function findSectionFileInput(labelRe: RegExp): HTMLInputElement | null {
-  const inputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="file"]'));
+  const root = findApplyModalRoot() ?? document;
+  const inputs = Array.from(root.querySelectorAll<HTMLInputElement>('input[type="file"]'));
   if (inputs.length === 0) return null;
 
-  const heading = findShortTextEl(labelRe);
+  const heading = findShortTextEl(labelRe, 80, root);
   if (heading) {
     let container: HTMLElement | null = heading;
     for (let hops = 0; hops < 6 && container; hops++) {
-      const candidate = container.querySelector<HTMLInputElement>('input[type="file"]');
+      const candidates = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="file"]'));
+      const afterHeading = candidates.filter((candidate) =>
+        !!(heading.compareDocumentPosition(candidate) & Node.DOCUMENT_POSITION_FOLLOWING)
+      );
+      const candidate =
+        afterHeading.find((i) => !i.files || i.files.length === 0) ??
+        afterHeading[0] ??
+        null;
       if (candidate) return candidate;
       container = container.parentElement;
     }
@@ -2678,8 +3149,8 @@ function favoriteIsSaved(el: HTMLElement): boolean {
   return /remove from saved|unsave|saved\b/.test(aria);
 }
 
-// Ship what the save attempt did (and the saved/unsaved state it observed) to
-// backend.log so the flow is verifiable without reading the page console.
+// Ship what the save attempt did to the background worker's console so the flow
+// can be inspected without persisting job-level details in the backend.
 function dumpSaveJob(jobId: string, el: HTMLElement | null, note: string): void {
   void chrome.runtime
     .sendMessage({
@@ -2953,7 +3424,8 @@ async function submitWithBlankPdf(base: {
 // The container holding the "other required documents" heading and its upload
 // control — used to detect when Handshake has accepted our uploaded file.
 function otherDocsSection(): HTMLElement | null {
-  const heading = findShortTextEl(/other required documents|other documents/i, 60);
+  const root = findApplyModalRoot() ?? document;
+  const heading = findShortTextEl(/other required documents|other documents/i, 60, root);
   if (!heading) return null;
   let node: HTMLElement | null = heading;
   for (let i = 0; i < 6 && node; i++, node = node.parentElement) {
@@ -3264,7 +3736,7 @@ async function handleOtherRequiredDocs(
     const decision = await promptOtherDocsDecision(base.title, base.company, instructions);
     action = decision.action;
     if (decision.remember) {
-      otherDocsRemembered = action;
+      await rememberOtherDocsAction(action);
       log(`remembering "${action}" for the rest of this run.`);
     }
   } else {
@@ -3316,6 +3788,97 @@ async function handleStatus(): Promise<ContentResponse> {
   };
 }
 
+function routeKind(): PageDiagnostics["route"] {
+  const path = pathnameFor(window.location.href);
+  if (isOnJobDetailPage()) return "job-detail";
+  if (/\/job-search(?:\/|$)/.test(path)) return "job-search";
+  return "supported-other";
+}
+
+async function buildPageDiagnostics(): Promise<PageDiagnostics> {
+  const session = await getSession();
+  const selectedJobId = extractJobId(window.location.href);
+  const cards = collectJobCards({ quiet: true });
+  const applyButton = findApplyButton();
+  const { title, company } = extractJobMeta();
+
+  return {
+    url: window.location.href,
+    pageSupport,
+    route: routeKind(),
+    isOnJobDetailPage: isOnJobDetailPage(),
+    selectedJobId,
+    currentPage: currentPageNumber(),
+    visibleJobCardCount: cards.length,
+    cardSamples: cards.slice(0, 8).map((card) => ({
+      id: card.id,
+      title: card.title,
+      isSearch: card.isSearch
+    })),
+    currentJob: {
+      title,
+      company
+    },
+    gates: {
+      alreadyApplied: isAlreadyApplied(),
+      externalApply: isExternalApply(),
+      applyButtonFound: !!applyButton,
+      applyButtonText: applyButton?.textContent?.trim() || null,
+      screeningQuestionsVisible: hasScreeningQuestions(),
+      otherRequiredDocsVisible: hasOtherRequiredDocs()
+    },
+    session: {
+      runLoopActive,
+      activeRunId: session && !session.shouldStop ? session.runId : null,
+      activeMode: session?.mode ?? null,
+      shouldStop: session?.shouldStop ?? null,
+      seenCount: session?.seenIds?.length ?? 0,
+      processed: session?.processed ?? null
+    },
+    counts: {
+      totalButtons: document.querySelectorAll("button").length,
+      totalAnchors: document.querySelectorAll("a[href]").length,
+      jobResultCardHooks: document.querySelectorAll('[data-hook^="job-result-card"]').length
+    },
+    buttonsSample: dumpButtonTexts().slice(0, 25)
+  };
+}
+
+async function emitPageDiagnostics(
+  label: "content-ready" | "page-diagnostics"
+): Promise<PageDiagnostics | null> {
+  try {
+    if (label === "content-ready") {
+      await waitFor(
+        () => pageSupport !== "supported" || isOnJobDetailPage() || collectJobCards({ quiet: true }).length > 0,
+        2500,
+        250
+      );
+    }
+    const diagnostics = await buildPageDiagnostics();
+    log(label, diagnostics);
+    console.log(
+      `${LOG} ${label.toUpperCase().replace(/-/g, "_")}_JSON\n` +
+        JSON.stringify(diagnostics, null, 2)
+    );
+    void chrome.runtime
+      .sendMessage({ type: "content/debug-log", label, payload: diagnostics })
+      .catch(() => {});
+    return diagnostics;
+  } catch (err) {
+    warn(`Could not capture ${label}`, err);
+    return null;
+  }
+}
+
+async function handleDiagnosePage(): Promise<ContentResponse> {
+  const diagnostics = await emitPageDiagnostics("page-diagnostics");
+  if (!diagnostics) {
+    return { ok: false, error: "Could not capture Handshake page diagnostics." };
+  }
+  return { ok: true, diagnostics };
+}
+
 async function handleStartRun(
   runId: string,
   settings: Settings,
@@ -3330,7 +3893,8 @@ async function handleStartRun(
     return { ok: false, error: "A run is already active in this tab." };
   }
 
-  screeningPrefs = screening; // answers used by answerScreeningQuestions() this run
+  screeningPrefs = normalizeScreeningPrefs(screening); // answers used by answerScreeningQuestions() this run
+  otherDocsRemembered = null; // every new run starts without a remembered choice
   group(`handleStartRun runId=${runId}`);
   log("url", window.location.href);
   log("pageSupport", pageSupport, "| isOnJobDetailPage", isOnJobDetailPage());
@@ -3351,7 +3915,8 @@ async function handleStartRun(
       settings,
       shouldStop: false,
       mode: "detail",
-      screening: screeningPrefs
+      screening: screeningPrefs,
+      otherDocsRemembered: null
     };
     await saveSession(session);
     // Process immediately after sending the response
@@ -3370,7 +3935,6 @@ async function handleStartRun(
   }
 
   inPlaceStop = false;
-  otherDocsRemembered = null; // fresh prompt decisions each run
   // Persist a "list" session so the walker can resume the SAME run if Handshake
   // hard-reloads the search page mid-walk (otherwise it restarts from the top and
   // re-applies).
@@ -3380,6 +3944,7 @@ async function handleStartRun(
     shouldStop: false,
     mode: "list",
     screening: screeningPrefs,
+    otherDocsRemembered: null,
     seenIds: [],
     processed: 0,
     startPage: currentPageNumber()
@@ -3425,6 +3990,10 @@ if (haaWindow.__haaContentInitialized) {
           sendResponse(await handleStartRun(message.runId, message.settings, message.screening));
           return;
 
+        case "content/diagnose-page":
+          sendResponse(await handleDiagnosePage());
+          return;
+
         case "content/stop-run":
           sendResponse(await handleStopRun());
           return;
@@ -3455,4 +4024,5 @@ if (haaWindow.__haaContentInitialized) {
     pageSupport,
     isOnJobDetailPage: isOnJobDetailPage()
   });
+  setTimeout(() => void emitPageDiagnostics("content-ready"), 1500);
 }

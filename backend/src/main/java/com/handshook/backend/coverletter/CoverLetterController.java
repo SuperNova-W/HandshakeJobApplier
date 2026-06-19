@@ -1,5 +1,7 @@
 package com.handshook.backend.coverletter;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -9,6 +11,8 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/cover-letter")
 public class CoverLetterController {
+
+    private static final Logger log = LoggerFactory.getLogger(CoverLetterController.class);
 
     private final CoverLetterService coverLetterService;
     private final CoverLetterPdfRenderer pdfRenderer;
@@ -32,6 +36,11 @@ public class CoverLetterController {
     public ResponseEntity<byte[]> renderPdf(@RequestBody CoverLetterPdfRequest request) {
         byte[] pdf = pdfRenderer.render(request.coverLetter());
         String filename = buildFilename(request.company());
+        log.info("COVER_LETTER_PDF rendered filename={} company='{}' inputChars={} bytes={}",
+            filename,
+            request.company(),
+            request.coverLetter() == null ? 0 : request.coverLetter().length(),
+            pdf.length);
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_PDF);

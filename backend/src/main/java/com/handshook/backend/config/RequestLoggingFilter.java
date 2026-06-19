@@ -30,7 +30,7 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
 public class RequestLoggingFilter extends OncePerRequestFilter {
 
     private static final Logger log = LoggerFactory.getLogger("com.handshook.http");
-    private static final int MAX_BODY_CHARS = 2000;
+    private static final int MAX_BODY_CHARS = 12000;
 
     @Override
     protected void doFilterInternal(
@@ -42,15 +42,25 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
 
         long start = System.nanoTime();
         String query = request.getQueryString() == null ? "" : "?" + request.getQueryString();
-        log.info("--> {} {}{} (origin={})",
-                request.getMethod(), request.getRequestURI(), query, request.getHeader("Origin"));
+        log.info("--> {} {}{} (origin={} contentType={} userAgent={})",
+                request.getMethod(),
+                request.getRequestURI(),
+                query,
+                request.getHeader("Origin"),
+                request.getContentType(),
+                truncateHeader(request.getHeader("User-Agent")));
 
         try {
             filterChain.doFilter(req, res);
         } finally {
             long tookMs = (System.nanoTime() - start) / 1_000_000;
+            boolean sensitivePath = request.getRequestURI().startsWith("/api/users");
 
-            if (isTextLike(request.getContentType())) {
+            if (sensitivePath) {
+                if (req.getContentAsByteArray().length > 0) {
+                    log.info("    request  body: [redacted user data]");
+                }
+            } else if (isTextLike(request.getContentType())) {
                 String reqBody = bodyToString(req.getContentAsByteArray());
                 if (!reqBody.isBlank()) {
                     log.info("    request  body: {}", truncate(reqBody));
@@ -62,7 +72,11 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
 
             log.info("<-- {} {}{} -> {} ({} ms)",
                     request.getMethod(), request.getRequestURI(), query, res.getStatus(), tookMs);
-            if (isTextLike(res.getContentType())) {
+            if (sensitivePath) {
+                if (res.getContentAsByteArray().length > 0) {
+                    log.info("    response body: [redacted user data]");
+                }
+            } else if (isTextLike(res.getContentType())) {
                 String resBody = bodyToString(res.getContentAsByteArray());
                 if (!resBody.isBlank()) {
                     log.info("    response body: {}", truncate(resBody));
@@ -106,5 +120,12 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
             return value;
         }
         return value.substring(0, MAX_BODY_CHARS) + "…(" + (value.length() - MAX_BODY_CHARS) + " more chars)";
+    }
+
+    private static String truncateHeader(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.length() <= 160 ? value : value.substring(0, 160) + "…";
     }
 }

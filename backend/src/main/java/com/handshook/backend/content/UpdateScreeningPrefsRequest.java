@@ -8,6 +8,8 @@ import java.util.List;
  */
 public record UpdateScreeningPrefsRequest(
     Boolean usWorkAuthorized,
+    Boolean softwareEngineeringDegree,
+    Boolean speaksEnglish,
     Boolean relocateAnywhere,
     List<String> locations
 ) {}

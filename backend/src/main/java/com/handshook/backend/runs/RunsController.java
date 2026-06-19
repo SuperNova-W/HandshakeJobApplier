@@ -19,6 +19,11 @@ public class RunsController {
         return runsService.createRun(request);
     }
 
+    @PostMapping("/{runId}/outcomes")
+    public void recordOutcome(@PathVariable String runId, @RequestBody RecordRunOutcomeRequest request) {
+        runsService.recordOutcome(runId, request);
+    }
+
     @PatchMapping("/{runId}")
     public RunSummaryDto finalizeRun(@PathVariable String runId, @RequestBody FinalizeRunRequest request) {
         return runsService.finalizeRun(runId, request);

@@ -1,5 +1,7 @@
 import {
+  authenticateGoogleUser,
   coverLetterPdfBase64,
+  completeCurrentUserOnboarding,
   createRun,
   documentBase64ByType,
   finalizeRun,
@@ -10,22 +12,29 @@ import {
   getScreeningPrefs,
   getSettings,
   otherDocPdfBase64,
-  recordApplication,
-  sendClientLog,
-  checkDuplicate
+  recordRunOutcome
 } from "../shared/backendApi";
 import {
   createInitialRuntimeState,
   DEFAULT_SCREENING,
-  DEFAULT_SETTINGS
+  DEFAULT_SETTINGS,
+  normalizeScreeningPrefs
 } from "../shared/constants";
 import { inferPageSupport } from "../shared/handshake";
+import {
+  markOnboardingComplete,
+  markOnboardingIncomplete,
+  onboardingPageUrl,
+  readOnboardingState,
+  saveOnboardingUser
+} from "../shared/onboarding";
 import type {
   ContentMessage,
   ContentResponse,
   DocumentType,
   ExtensionMessage,
   ExtensionResponse,
+  GoogleUserProfile,
   JobContext,
   JobResult,
   RunStatus,
@@ -100,6 +109,58 @@ function resetRunCounters() {
   runtimeState.appliedCount = 0;
   runtimeState.skippedCount = 0;
   runtimeState.failedCount = 0;
+}
+
+function getGoogleAuthToken(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!chrome.identity?.getAuthToken) {
+      reject(new Error("Chrome Identity is unavailable in this browser context."));
+      return;
+    }
+
+    chrome.identity.getAuthToken({ interactive: true }, (result) => {
+      const lastError = chrome.runtime.lastError;
+      if (lastError) {
+        reject(new Error(lastError.message));
+        return;
+      }
+
+      if (typeof result === "string" && result) {
+        resolve(result);
+        return;
+      }
+
+      if (result && typeof result === "object" && "token" in result) {
+        const token = (result as { token?: string }).token;
+        if (token) {
+          resolve(token);
+          return;
+        }
+      }
+
+      reject(new Error("Google did not return an auth token."));
+    });
+  });
+}
+
+async function loginWithGoogle(): Promise<ExtensionResponse> {
+  const token = await getGoogleAuthToken();
+  const storedUser = await authenticateGoogleUser(token);
+  const user: GoogleUserProfile = {
+    backendUserId: storedUser.id,
+    id: storedUser.googleSubject,
+    email: storedUser.email,
+    name: storedUser.displayName,
+    picture: storedUser.pictureUrl,
+    authenticatedAt: storedUser.authenticatedAt
+  };
+  await saveOnboardingUser(user);
+  return { ok: true, user };
+}
+
+async function completeOnboarding(): Promise<ExtensionResponse> {
+  await completeCurrentUserOnboarding();
+  return { ok: true, onboarding: await markOnboardingComplete() };
 }
 
 async function refreshBackendState() {
@@ -181,7 +242,7 @@ async function startRun(): Promise<ExtensionResponse> {
   // a missing prefs row shouldn't block the run.
   let screening = DEFAULT_SCREENING;
   try {
-    screening = await getScreeningPrefs();
+    screening = normalizeScreeningPrefs(await getScreeningPrefs());
   } catch {
     log("startRun: couldn't load screening prefs; using defaults.");
   }
@@ -226,7 +287,7 @@ async function startRun(): Promise<ExtensionResponse> {
   if (contentResponse.discoveredJobCount === 0) {
     const reason =
       "Found 0 jobs on this page. Handshake job-search renders cards without per-job URLs; " +
-      "DOM diagnostics were sent to the backend log so the scraper can be fixed.";
+      "DOM diagnostics were written to the extension console so the scraper can be fixed.";
     warn(reason);
     runtimeState.runStatus = "FAILED";
     runtimeState.lastError = reason;
@@ -272,6 +333,21 @@ async function stopRun(): Promise<ExtensionResponse> {
   }
 
   return { ok: true, state: runtimeState };
+}
+
+async function diagnoseActivePage(): Promise<ExtensionResponse> {
+  const activeTab = await getActiveHandshakeTab();
+  const response = await sendContentMessage(activeTab.id, { type: "content/diagnose-page" });
+
+  if (!response.ok) {
+    return response;
+  }
+
+  if (!("diagnostics" in response)) {
+    return { ok: false, error: "Unexpected content-script response to page diagnostic." };
+  }
+
+  return { ok: true, diagnostics: response.diagnostics };
 }
 
 async function generateCoverLetter(): Promise<ExtensionResponse> {
@@ -437,18 +513,6 @@ async function getDocument(docType: DocumentType): Promise<ExtensionResponse> {
   }
 }
 
-async function checkDuplicateApplication(handshakeJobId: string): Promise<ExtensionResponse> {
-  try {
-    const result = await checkDuplicate(handshakeJobId);
-    return { ok: true, duplicate: result.exists };
-  } catch (err) {
-    return {
-      ok: false,
-      error: err instanceof Error ? err.message : "Duplicate check failed."
-    };
-  }
-}
-
 async function handleJobProcessed(
   runId: string,
   result: JobResult
@@ -473,10 +537,10 @@ async function handleJobProcessed(
   else if (result.status === "FAILED") runtimeState.failedCount++;
 
   try {
-    await recordApplication(runId, result);
+    await recordRunOutcome(runId, result.status);
   } catch (err) {
     const message =
-      err instanceof Error ? err.message : "Failed to record application outcome.";
+      err instanceof Error ? err.message : "Failed to update run counters.";
     runtimeState.lastError = message;
     runtimeState.runStatus = "STOPPING";
     return { ok: true, shouldStop: true };
@@ -543,8 +607,13 @@ async function handleRunComplete(
   return { ok: true, state: runtimeState };
 }
 
-chrome.runtime.onInstalled.addListener(() => {
-  console.log("[background] Extension installed");
+chrome.runtime.onInstalled.addListener((details) => {
+  console.log("[background] Extension installed", details.reason);
+  if (details.reason === "install") {
+    void markOnboardingIncomplete()
+      .then(() => chrome.tabs.create({ url: onboardingPageUrl() }))
+      .catch((err) => warn("failed to open onboarding after install", err));
+  }
 });
 
 chrome.runtime.onStartup.addListener(() => {
@@ -565,6 +634,18 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendRes
           respond(sendResponse, { ok: true, state: runtimeState });
           return;
 
+        case "runtime/get-onboarding":
+          respond(sendResponse, { ok: true, onboarding: await readOnboardingState() });
+          return;
+
+        case "runtime/google-login":
+          respond(sendResponse, await loginWithGoogle());
+          return;
+
+        case "runtime/complete-onboarding":
+          respond(sendResponse, await completeOnboarding());
+          return;
+
         case "runtime/start":
           respond(sendResponse, await startRun());
           return;
@@ -573,16 +654,16 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendRes
           respond(sendResponse, await stopRun());
           return;
 
+        case "runtime/diagnose-page":
+          respond(sendResponse, await diagnoseActivePage());
+          return;
+
         case "runtime/generate-cover-letter":
           respond(sendResponse, await generateCoverLetter());
           return;
 
         case "runtime/attach-cover-letter":
           respond(sendResponse, await attachCoverLetter(message.coverLetter));
-          return;
-
-        case "runtime/check-duplicate":
-          respond(sendResponse, await checkDuplicateApplication(message.handshakeJobId));
           return;
 
         case "runtime/get-document": {
@@ -674,9 +755,6 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendRes
 
         case "content/debug-log":
           log(`client-log [${message.label}]`, message.payload);
-          void sendClientLog(message.label, message.payload).catch((e) =>
-            warn("failed to forward client-log to backend", e)
-          );
           respond(sendResponse, { ok: true, state: runtimeState });
           return;
 

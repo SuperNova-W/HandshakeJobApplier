@@ -11,6 +11,8 @@ import java.util.List;
  */
 public record ScreeningPrefsDto(
     boolean usWorkAuthorized,
+    boolean softwareEngineeringDegree,
+    boolean speaksEnglish,
     boolean relocateAnywhere,
     List<String> locations
 ) {}

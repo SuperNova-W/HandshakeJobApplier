@@ -21,7 +21,7 @@ This repository is now a clean implementation starting point centered on this sp
 - Manifest V3 background service worker
 - Content-script-driven DOM automation
 - Localhost Spring Boot API on `127.0.0.1:8765`
-- SQLite as the source of truth for settings and application history
+- SQLite as the source of truth for settings and aggregate run history
 
 The MVP starts manually from the extension popup. It does not auto-run on page load.
 
@@ -31,7 +31,7 @@ The MVP starts manually from the extension popup. It does not auto-run on page l
 - Let a logged-in Handshake user start a run from the browser popup and automatically apply to eligible one-click jobs on supported Handshake job pages.
 
 ### Secondary Goals
-- Prevent duplicate applications across runs.
+- Trust Handshake's applied state instead of maintaining a second application ledger.
 - Skip unsupported or risky application flows.
 - Show clear live progress and recent run history.
 - Keep user data local to the user's machine.
@@ -108,7 +108,6 @@ A job is eligible for the MVP only if all of the following are true:
 - The job does not open a multi-step form
 - The job does not present screening questions
 - The apply button is enabled
-- The backend does not already contain a successful application for the same Handshake job ID
 
 ### Skip Reasons
 
@@ -122,7 +121,6 @@ Every skipped job must be recorded with one of these reasons:
 | `SCREENING_QUESTIONS` | The flow contains questions, text fields, radios, checkboxes, selects, or textareas that need answers |
 | `NO_APPLY_BUTTON` | No valid native apply button was found |
 | `DISABLED_BUTTON` | Apply button exists but is disabled |
-| `DUPLICATE_IN_DB` | SQLite already contains a successful application for this job ID |
 | `UNSUPPORTED_PAGE` | The user started from a page without supported job list or detail structures |
 
 ## 8. Guardrails
@@ -284,10 +282,8 @@ Host permissions:
 - Report service health and version
 - Persist settings
 - Create and finalize runs
-- Persist every application outcome
-- Prevent duplicate successful applications across runs
+- Persist aggregate applied, skipped, and failed counts for each run
 - Return recent run history to the popup
-- Persist enough metadata to debug failures later
 
 ## 13. Target Data Model
 
@@ -373,34 +369,8 @@ stop_on_error = false
 | `failed_count` | INTEGER NOT NULL DEFAULT 0 | Failed total |
 | `error_message` | TEXT NULL | Fatal run-level error if present |
 
-### 14.3 `applications`
-
-| Column | Type | Notes |
-| --- | --- | --- |
-| `id` | TEXT PRIMARY KEY | UUID string |
-| `run_id` | TEXT NOT NULL | FK to `application_runs.id` |
-| `handshake_job_id` | TEXT NOT NULL | Parsed Handshake job ID |
-| `job_url` | TEXT NOT NULL | Canonical job URL |
-| `title` | TEXT NOT NULL | Job title at capture time |
-| `company` | TEXT NOT NULL | Company name at capture time |
-| `status` | TEXT NOT NULL | `APPLIED`, `SKIPPED`, `FAILED` |
-| `skip_reason` | TEXT NULL | Required when `status = SKIPPED` |
-| `applied_at` | TEXT NOT NULL | ISO timestamp |
-| `error_message` | TEXT NULL | Required when `status = FAILED` |
-| `raw_job_snapshot_json` | TEXT NULL | Raw selector/debug snapshot for investigation |
-
-### 14.4 Constraints
-
-- Foreign key: `applications.run_id -> application_runs.id`
-- Unique index on successful applications by `handshake_job_id`
-- `skip_reason` must be null unless `status = SKIPPED`
-- `error_message` must be null unless `status = FAILED`
-
-Recommended duplicate-protection index:
-
-```text
-UNIQUE(handshake_job_id) WHERE status = 'APPLIED'
-```
+The backend intentionally has no per-job applications table. Handshake is the
+source of truth for submitted applications; SQLite keeps only run-level totals.
 
 ## 15. Backend API Contract
 
@@ -468,41 +438,22 @@ Response:
 }
 ```
 
-### 15.5 `POST /api/runs/{runId}/applications`
+### 15.5 `POST /api/runs/{runId}/outcomes`
 
 Purpose:
-- Persist the result of one job attempt or skip
+- Increment one aggregate run counter without persisting job identity
 
 Request:
 
 ```json
 {
-  "handshakeJobId": "123456789",
-  "jobUrl": "https://app.joinhandshake.com/stu/jobs/123456789",
-  "title": "Software Engineer Intern",
-  "company": "Acme",
-  "status": "SKIPPED",
-  "skipReason": "SCREENING_QUESTIONS",
-  "errorMessage": null,
-  "appliedAt": "2026-04-01T12:01:10.000Z",
-  "rawJobSnapshotJson": "{\"buttonText\":\"Apply\",\"pageType\":\"detail\"}"
-}
-```
-
-Response:
-
-```json
-{
-  "id": "35f2b4d9-8f5f-4f95-8863-37d15d998901",
-  "runId": "d5e2b4a3-6a3d-4f74-9fad-7e8a97bfa901",
   "status": "SKIPPED"
 }
 ```
 
 Rules:
-- `skipReason` is required when `status = SKIPPED`
-- `errorMessage` is required when `status = FAILED`
-- If the record would violate the successful application unique index, the backend returns a duplicate response and the extension treats the job as `DUPLICATE_IN_DB`
+- `status` must be `APPLIED`, `SKIPPED`, or `FAILED`
+- The request does not contain a job ID, title, company, URL, or skip reason
 
 ### 15.6 `PATCH /api/runs/{runId}`
 
@@ -555,24 +506,6 @@ Response:
 ]
 ```
 
-### 15.8 Supporting Endpoint for Duplicate Preflight
-
-The plan requires `DUPLICATE_IN_DB` skips before submitting duplicate jobs. For that reason, the MVP should also expose:
-
-`GET /api/applications/exists?handshakeJobId={id}`
-
-Response:
-
-```json
-{
-  "handshakeJobId": "123456789",
-  "exists": true,
-  "status": "APPLIED"
-}
-```
-
-This endpoint is small but important because it lets the extension skip previously applied jobs before clicking the button.
-
 ### 15.9 AI Document Endpoints (post-MVP)
 
 OpenAI-backed document generation, added after the core MVP. Generation runs
@@ -616,13 +549,11 @@ Stop: it drafts, lets the user review/edit, then attaches the PDF and submits.
 For each discovered job:
 
 1. Content script extracts job metadata
-2. Content script or background checks duplicate status against backend
-3. If duplicate, record `SKIPPED / DUPLICATE_IN_DB`
-4. If UI shows already applied, record `SKIPPED / ALREADY_APPLIED`
-5. If button is external or complex, record a matching skip reason
-6. If flow is valid one-click apply, click apply and confirm
-7. Record `APPLIED` or `FAILED`
-8. Update popup counts through background state
+2. If Handshake shows already applied, count the job as skipped
+3. If the button is external or complex, count a skip
+4. If the flow is valid one-click apply, click apply and confirm
+5. Increment the matching aggregate run counter
+6. Update popup counts through background state
 
 ### Run Completion
 
@@ -643,7 +574,7 @@ Background finalizes the run as:
 | Confirmation modal contains inputs | Skip as `SCREENING_QUESTIONS` or `MULTI_STEP_FORM` |
 | Apply button text indicates external flow | Skip as `APPLY_EXTERNALLY` |
 | Duplicate job within same run | Skip without applying using in-memory `seenJobIds` |
-| Duplicate job from prior runs | Skip as `DUPLICATE_IN_DB` |
+| Job applied during a prior run | Trust Handshake's applied state |
 
 ## 18. Security and Privacy Requirements
 
@@ -683,9 +614,9 @@ The MVP should log enough data to debug failures without exposing private creden
 The MVP is complete when all of the following are true:
 
 1. Manual start from the popup on a supported Handshake jobs page creates a backend run and updates live counters.
-2. Native one-click Handshake jobs are applied successfully and persisted in SQLite.
+2. Native one-click Handshake jobs are applied successfully and reflected in aggregate run counters.
 3. External apply links, screening questions, multi-step modals, disabled buttons, and already-applied jobs are skipped and logged with the correct reason.
-4. Re-running on the same listings does not submit duplicates because DOM detection and SQLite history both block them.
+4. Re-running relies on Handshake's applied state; no local cross-run application ledger is maintained.
 5. Clicking `Stop` halts the run before the next job attempt and finalizes the run as `STOPPED`.
 6. If the backend is offline, the popup blocks `Start` and surfaces a clear error instead of silently running.
 7. Pagination stops cleanly at the last page or at `maxPagesPerRun`.
@@ -702,21 +633,20 @@ The MVP is complete when all of the following are true:
 - Encounter a multi-step flow
 - Encounter an already-applied job
 - Stop during an active run
-- Re-run the same page and confirm duplicate prevention
+- Re-run the same page and confirm Handshake marks submitted jobs as already applied
 
 ### Backend Tests
 - Health endpoint returns `UP`
 - Settings persist and reload correctly
 - Run creation and finalization work
-- Application record persistence works for `APPLIED`, `SKIPPED`, and `FAILED`
-- Unique constraint prevents duplicate successful applications
+- Aggregate run counters increment for `APPLIED`, `SKIPPED`, and `FAILED`
+- No per-job `applications` table exists
 
 ### Extension Tests
 - Popup reflects backend health correctly
 - Popup counters update during a run
 - Background preserves state while popup opens and closes
 - Content script halts safely when stop is requested
-- Duplicate preflight prevents duplicate clicks
 
 ## 22. Risks
 
@@ -729,16 +659,12 @@ Handshake may view aggressive automation unfavorably. The MVP should stay conser
 ### Local Backend Dependency
 The product depends on a local service running correctly. The UX must make backend state obvious.
 
-### Duplicate Detection Edge Cases
-If job IDs are missing or malformed, duplicate detection weakens. The implementation should refuse risky applies when job identity is ambiguous.
-
 ## 23. Phased Implementation Milestones
 
 ### Phase 1: Backend Foundation
 - Create Spring Boot app under a dedicated backend directory
 - Add SQLite connection and Flyway migrations
-- Implement settings, run, application, and health endpoints
-- Enforce duplicate protection at the DB layer
+- Implement settings, run-counter, and health endpoints
 
 ### Phase 2: Extension Foundation
 - Convert popup to React
@@ -750,12 +676,12 @@ If job IDs are missing or malformed, duplicate detection weakens. The implementa
 - Implement supported page detection
 - Implement job discovery, detail opening, and eligibility classification
 - Implement one-click apply handling and modal confirmation
-- Persist all per-job outcomes to backend
+- Persist only aggregate run outcomes to backend
 
 ### Phase 4: Hardening
 - Improve selector fallback strategy
 - Improve stop behavior and error handling
-- Validate duplicate prevention end to end
+- Validate Handshake applied-state handling end to end
 - Complete manual QA checklist
 
 ## 24. Implementation Defaults and Assumptions

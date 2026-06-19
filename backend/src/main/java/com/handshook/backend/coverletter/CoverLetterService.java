@@ -67,6 +67,7 @@ public class CoverLetterService {
 
         String resume = resumeResolver.resolve();
         if (resume == null || resume.isBlank()) {
+            log.warn("COVER_LETTER_GENERATE blocked: no resume context on file");
             throw new IllegalStateException(
                 "No resume on file. Upload a resume PDF on the Documents page (or paste your resume "
                     + "text in the extension's Resume panel) before generating a cover letter.");
@@ -74,6 +75,7 @@ public class CoverLetterService {
 
         String company = orUnknown(request.company(), "the company");
         String role = orUnknown(request.jobTitle(), "this role");
+        int jdChars = request.jobDescription() == null ? 0 : request.jobDescription().length();
 
         Map<String, Object> body = Map.of(
             "model", MODEL,
@@ -84,7 +86,15 @@ public class CoverLetterService {
             )
         );
 
-        log.info("Generating cover letter for role='{}' at company='{}'.", role, company);
+        log.info(
+            "COVER_LETTER_GENERATE start role='{}' company='{}' resumeChars={} jobDescriptionChars={} model={} maxTokens={}",
+            role,
+            company,
+            resume.length(),
+            jdChars,
+            MODEL,
+            MAX_TOKENS
+        );
 
         JsonNode response;
         try {
@@ -104,10 +114,13 @@ public class CoverLetterService {
 
         String letter = extractContent(response);
         if (letter.isBlank()) {
+            log.warn("COVER_LETTER_GENERATE empty response role='{}' company='{}' rawResponse={}",
+                role, company, response);
             throw new IllegalStateException("OpenAI returned an empty cover letter.");
         }
 
-        log.info("Cover letter generated ({} chars).", letter.length());
+        log.info("COVER_LETTER_GENERATE complete role='{}' company='{}' chars={} usage={}",
+            role, company, letter.length(), response == null ? null : response.path("usage"));
         return new CoverLetterResponse(letter, MODEL, Instant.now().toString());
     }
 

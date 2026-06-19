@@ -184,7 +184,6 @@ This now proves the extension control plane. The apply loop is still intentional
 - apply-button detection
 - skip-reason classification
 - pagination
-- duplicate checks against backend
 - real apply-loop stop orchestration
 
 ## Local Run Commands
@@ -242,7 +241,7 @@ The next frontend increments should happen in this order:
   - inspect job detail
   - attempt apply
   - stop
-- Keep all per-job reporting structured from the start
+- Keep aggregate run reporting structured from the start
 
 ### 5. Popup Expansion
 - Add recent run history

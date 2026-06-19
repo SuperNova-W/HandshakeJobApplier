@@ -1,6 +1,8 @@
 package com.handshook.backend.otherdocs;
 
 import com.handshook.backend.coverletter.CoverLetterPdfRenderer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -17,6 +19,8 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/other-docs")
 public class OtherDocsController {
+
+    private static final Logger log = LoggerFactory.getLogger(OtherDocsController.class);
 
     private final OtherDocsAgentService agentService;
     private final CoverLetterPdfRenderer pdfRenderer;
@@ -35,6 +39,11 @@ public class OtherDocsController {
     public ResponseEntity<byte[]> renderPdf(@RequestBody OtherDocsPdfRequest request) {
         byte[] pdf = pdfRenderer.render(request.document());
         String filename = buildFilename(request.company());
+        log.info("OTHER_DOCS_PDF rendered filename={} company='{}' inputChars={} bytes={}",
+            filename,
+            request.company(),
+            request.document() == null ? 0 : request.document().length(),
+            pdf.length);
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_PDF);
