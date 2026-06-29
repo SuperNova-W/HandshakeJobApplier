@@ -18,10 +18,8 @@ public class DatabaseStatusService {
 
     public String getStatus() {
         try {
-            Integer probe = jdbcTemplate.queryForObject("SELECT 1", Integer.class);
-            String status = Integer.valueOf(1).equals(probe) ? "CONNECTED" : "UNAVAILABLE";
-            log.debug("DB_STATUS probe={} status={}", probe, status);
-            return status;
+            Integer ok = jdbcTemplate.queryForObject("SELECT 1", Integer.class);
+            return ok != null && ok == 1 ? "CONNECTED" : "UNAVAILABLE";
         } catch (Exception exception) {
             log.error("DB_STATUS unavailable", exception);
             return "UNAVAILABLE";

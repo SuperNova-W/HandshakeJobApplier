@@ -150,6 +150,11 @@ body {
   opacity: 0.45;
   cursor: not-allowed;
 }
+.btn.is-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
 .btn-primary {
   background: var(--accent);
   color: var(--ink-on-accent);
@@ -188,14 +193,60 @@ body {
 }
 
 /* ---- Other documents ---- */
-.other-add {
+.other-upload-panel {
+  padding: 16px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-well);
+  background: var(--surface-2);
+}
+.other-upload-copy {
   display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
   align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.other-upload-copy > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.other-upload-copy strong {
+  font-size: 14px;
+  color: var(--ink-1);
+}
+.other-upload-copy span:last-child {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.other-upload-icon,
+.other-document-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+}
+.other-upload-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-pill);
+}
+.other-add {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+.other-label-field {
+  min-width: 0;
+}
+.other-label-field .field-label {
+  margin-bottom: 6px;
 }
 .text-input {
-  flex: 1 1 220px;
+  width: 100%;
   padding: 9px 12px;
   border: 1px solid var(--border-hair);
   border-radius: var(--r-btn);
@@ -209,10 +260,34 @@ body {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent-soft);
 }
+.other-upload-button {
+  min-height: 37px;
+  justify-content: center;
+}
 
+.other-library {
+  margin-top: 18px;
+}
+.other-library-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 9px;
+  padding: 0 2px;
+}
+.other-library-head strong {
+  font-size: 13px;
+  color: var(--ink-1);
+}
+.other-library-head span {
+  font-size: 12px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
 .other-list {
   list-style: none;
-  margin: 16px 0 0;
+  margin: 0;
   padding: 0;
   display: grid;
   gap: 10px;
@@ -227,6 +302,67 @@ body {
   border: 1px solid var(--border-soft);
   border-radius: var(--r-well);
   background: var(--surface-2);
+}
+.other-document-main {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+.other-document-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+}
+.other-filename {
+  color: var(--ink-2) !important;
+  overflow-wrap: anywhere;
+}
+.other-empty {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 18px;
+  border: 1px dashed var(--border-ink);
+  border-radius: var(--r-well);
+  color: var(--ink-3);
+  background: var(--paper-1);
+}
+.other-empty svg {
+  flex-shrink: 0;
+}
+.other-empty > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.other-empty strong {
+  font-size: 13px;
+  color: var(--ink-1);
+}
+.other-empty span {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+@media (max-width: 620px) {
+  .other-add {
+    grid-template-columns: 1fr;
+  }
+  .other-upload-button {
+    width: 100%;
+  }
+  .other-list li {
+    align-items: flex-start;
+  }
+  .other-list .actions {
+    width: 100%;
+  }
+  .other-list .actions .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
 }
 
 /* ---- Screening answers ---- */
@@ -431,6 +567,24 @@ body {
   border: 1px solid var(--border-soft);
   background: var(--surface-2);
 }
+.account-management {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px;
+  border: 1px solid var(--border-hair);
+  border-radius: var(--r-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+.account-management .account-pill {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
 .account-avatar {
   width: 38px;
   height: 38px;
@@ -524,6 +678,13 @@ body {
 }
 
 @media (max-width: 520px) {
+  .account-management {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .account-management .btn {
+    justify-content: center;
+  }
   .onboarding-actions {
     flex-direction: column-reverse;
   }

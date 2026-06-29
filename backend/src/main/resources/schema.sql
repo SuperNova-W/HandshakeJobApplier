@@ -1,134 +1,60 @@
-CREATE TABLE IF NOT EXISTS settings (
-    id INTEGER PRIMARY KEY,
-    apply_delay_ms INTEGER NOT NULL,
-    max_pages_per_run INTEGER NOT NULL,
-    stop_on_error INTEGER NOT NULL,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    CHECK (id = 1),
-    CHECK (apply_delay_ms >= 1000),
-    CHECK (max_pages_per_run >= 1),
-    CHECK (stop_on_error IN (0, 1))
-);
+-- HandShook local SQLite schema. Created automatically on startup
+-- (spring.sql.init.mode=always). Every statement is idempotent.
+--
+-- The model is multi-user: rows are scoped by the authenticated user's id, and
+-- ownership is enforced in the service layer via WHERE clauses. OAuth access
+-- tokens are deliberately never stored. Uploaded documents and resume text are
+-- kept in the browser's local store, not here.
 
-INSERT OR IGNORE INTO settings (
-    id,
-    apply_delay_ms,
-    max_pages_per_run,
-    stop_on_error,
-    created_at,
-    updated_at
-)
-VALUES (
-    1,
-    1500,
-    10,
-    0,
-    CURRENT_TIMESTAMP,
-    CURRENT_TIMESTAMP
-);
+-- Write-Ahead Logging improves read/write concurrency; it persists on the file.
+PRAGMA journal_mode=WAL;
 
--- Single-row store for user-provided content used as context for AI features
--- (currently the resume text fed to the cover-letter generator).
-CREATE TABLE IF NOT EXISTS user_content (
-    id INTEGER PRIMARY KEY,
-    resume_text TEXT NULL,
-    updated_at TEXT NOT NULL,
-    CHECK (id = 1)
-);
-
-INSERT OR IGNORE INTO user_content (id, resume_text, updated_at)
-VALUES (1, NULL, CURRENT_TIMESTAMP);
-
--- Google profile for the person using this local companion backend. The users
--- table keeps account history while current_user identifies the active account.
--- OAuth access tokens are deliberately never stored.
+-- Google profiles that have signed in to this companion backend.
 CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY,
-    google_subject TEXT NOT NULL UNIQUE,
-    email TEXT NOT NULL COLLATE NOCASE,
-    display_name TEXT NULL,
-    picture_url TEXT NULL,
-    authenticated_at TEXT NOT NULL,
-    onboarding_completed_at TEXT NULL,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    id                      TEXT PRIMARY KEY,
+    google_subject          TEXT NOT NULL UNIQUE,
+    email                   TEXT NOT NULL,
+    display_name            TEXT,
+    picture_url             TEXT,
+    authenticated_at        TEXT,
+    onboarding_completed_at TEXT,
+    created_at              TEXT,
+    updated_at              TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_users_email ON users(email COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
-CREATE TABLE IF NOT EXISTS current_user (
-    id INTEGER PRIMARY KEY,
-    user_id TEXT NOT NULL UNIQUE,
-    updated_at TEXT NOT NULL,
-    CHECK (id = 1),
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-);
-
--- Single-row store for the answers the bot gives to common Handshake screening
--- questions: US work authorization, software/technical degree, English, and the
--- locations the user is in or willing to relocate to (relocate_anywhere
--- short-circuits any location question to "Yes"; relocate_locations is a JSON
--- array of place strings matched against the question text).
-CREATE TABLE IF NOT EXISTS screening_prefs (
-    id INTEGER PRIMARY KEY,
-    us_work_authorized INTEGER NOT NULL DEFAULT 1,
+-- Per-user answers to common Handshake screening questions. relocate_anywhere
+-- short-circuits any location question to "Yes"; locations is a JSON array of
+-- place strings matched against the question text.
+CREATE TABLE IF NOT EXISTS screening_preferences (
+    user_id                     TEXT PRIMARY KEY,
+    us_work_authorized          INTEGER NOT NULL DEFAULT 1,
     software_engineering_degree INTEGER NOT NULL DEFAULT 1,
-    speaks_english INTEGER NOT NULL DEFAULT 1,
-    relocate_anywhere INTEGER NOT NULL DEFAULT 0,
-    relocate_locations TEXT NULL,
-    updated_at TEXT NOT NULL,
-    CHECK (id = 1),
+    speaks_english              INTEGER NOT NULL DEFAULT 1,
+    relocate_anywhere           INTEGER NOT NULL DEFAULT 0,
+    locations                   TEXT,
+    updated_at                  TEXT,
     CHECK (us_work_authorized IN (0, 1)),
     CHECK (software_engineering_degree IN (0, 1)),
     CHECK (speaks_english IN (0, 1)),
     CHECK (relocate_anywhere IN (0, 1))
 );
 
-INSERT OR IGNORE INTO screening_prefs (
-    id,
-    us_work_authorized,
-    relocate_anywhere,
-    relocate_locations,
-    updated_at
-)
-VALUES (1, 1, 0, NULL, CURRENT_TIMESTAMP);
-
--- Uploaded application documents (resume, cover letter, transcript, the
--- "coolest GitHub project" writeup, and arbitrary OTHER docs). Bytes are stored
--- inline as a BLOB — files are small and this keeps everything in the one DB.
--- Fixed types are single-slot (re-upload replaces); OTHER allows many.
-CREATE TABLE IF NOT EXISTS documents (
-    id TEXT PRIMARY KEY,
-    doc_type TEXT NOT NULL,
-    label TEXT NULL,
-    filename TEXT NOT NULL,
-    content_type TEXT NOT NULL,
-    size_bytes INTEGER NOT NULL,
-    data BLOB NOT NULL,
-    uploaded_at TEXT NOT NULL,
-    CHECK (doc_type IN ('RESUME', 'COVER_LETTER', 'TRANSCRIPT', 'GITHUB_PROJECT', 'OTHER'))
-);
-
-CREATE INDEX IF NOT EXISTS idx_documents_doc_type ON documents(doc_type);
-
--- Handshake is the source of truth for whether a particular job was already
--- applied to. Older builds stored one row per processed job in `applications`;
--- remove that legacy history and retain only aggregate counters on each run.
-DROP TABLE IF EXISTS applications;
-
+-- Aggregate per-run application history (no per-job rows are retained).
 CREATE TABLE IF NOT EXISTS application_runs (
-    id TEXT PRIMARY KEY,
-    started_at TEXT NOT NULL,
-    ended_at TEXT NULL,
-    status TEXT NOT NULL,
-    source_url TEXT NOT NULL,
+    id            TEXT PRIMARY KEY,
+    user_id       TEXT NOT NULL,
+    started_at    TEXT,
+    ended_at      TEXT,
+    status        TEXT NOT NULL,
+    source_url    TEXT,
     applied_count INTEGER NOT NULL DEFAULT 0,
     skipped_count INTEGER NOT NULL DEFAULT 0,
-    failed_count INTEGER NOT NULL DEFAULT 0,
-    error_message TEXT NULL,
+    failed_count  INTEGER NOT NULL DEFAULT 0,
+    error_message TEXT,
     CHECK (status IN ('RUNNING', 'COMPLETED', 'STOPPED', 'FAILED'))
 );
 
-CREATE INDEX IF NOT EXISTS idx_application_runs_started_at
-    ON application_runs(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_application_runs_user_started
+    ON application_runs(user_id, started_at DESC);

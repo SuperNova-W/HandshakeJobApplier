@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# Launches the HandShook backend with the OpenAI key loaded from .env.
+# Launches the HandShook backend with local configuration loaded from .env.
 #
-# The backend reads OPENAI_API_KEY from its process environment (System.getenv),
-# so this script sources .env and exports its vars before starting the jar.
+# This script sources .env and exports its variables before starting the jar.
 #
 # Usage:
 #   ./run.sh            # build if needed, then run
@@ -22,7 +21,18 @@ if [[ -f .env ]]; then
   source .env
   set +a
 else
-  echo "⚠️  No .env file found. Copy .env.example to .env and add your OPENAI_API_KEY." >&2
+  echo "⚠️  No .env file found. Copy .env.example to .env and configure Google auth." >&2
+fi
+
+if [[ -z "${GOOGLE_OAUTH_CLIENT_ID:-}" ]]; then
+  echo "⚠️  GOOGLE_OAUTH_CLIENT_ID is empty — Google sign-in will be disabled." >&2
+  echo "    Add the same Chrome Extension OAuth client ID to backend/.env and frontend/.env.local." >&2
+fi
+
+echo "ℹ️  Using SQLite at ${HANDSHOOK_DB_PATH:-data/handshook.db} (created on first run)." >&2
+
+if [[ -z "${AUTH_TOKEN_SECRET:-}" ]]; then
+  echo "⚠️  AUTH_TOKEN_SECRET is empty — local sessions will reset on every restart." >&2
 fi
 
 if [[ -z "${OPENAI_API_KEY:-}" ]]; then

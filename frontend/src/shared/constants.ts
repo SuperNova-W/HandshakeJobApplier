@@ -1,6 +1,21 @@
 import type { RuntimeState, ScreeningPrefs, Settings } from "./contracts";
 
-export const BACKEND_BASE_URL = "http://127.0.0.1:8765";
+export const BACKEND_BASE_URL = (
+  import.meta.env.VITE_BACKEND_BASE_URL || "http://127.0.0.1:8765"
+).replace(/\/+$/, "");
+
+// Google OAuth *Web application* client ID, used with chrome.identity.
+// launchWebAuthFlow. The legacy getAuthToken / "Chrome App" client flow was
+// disabled by Google's Oct-2023 custom-URI-scheme restriction, so sign-in uses
+// launchWebAuthFlow instead. The backend's GOOGLE_OAUTH_CLIENT_ID (token audience
+// check) must match this value.
+export const GOOGLE_OAUTH_CLIENT_ID = (import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID || "").trim();
+
+export const GOOGLE_OAUTH_SCOPES = [
+  "openid",
+  "https://www.googleapis.com/auth/userinfo.email",
+  "https://www.googleapis.com/auth/userinfo.profile"
+];
 export const DEFAULT_SETTINGS: Settings = {
   applyDelayMs: 1500,
   maxPagesPerRun: 10,

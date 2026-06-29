@@ -193,6 +193,11 @@ export interface BackendUser {
   updatedAt: string;
 }
 
+export interface BackendAuthSession {
+  user: BackendUser;
+  token: string;
+}
+
 export interface OnboardingState {
   complete: boolean;
   completedAt: string | null;
@@ -234,6 +239,8 @@ export type ExtensionMessage =
   | { type: "runtime/refresh" }
   | { type: "runtime/get-onboarding" }
   | { type: "runtime/google-login" }
+  | { type: "runtime/google-switch-account" }
+  | { type: "runtime/google-logout" }
   | { type: "runtime/complete-onboarding" }
   | { type: "runtime/start" }
   | { type: "runtime/stop" }
@@ -306,6 +313,7 @@ export type ExtensionResponse =
   | { ok: true; state: RuntimeState }
   | { ok: true; onboarding: OnboardingState }
   | { ok: true; user: GoogleUserProfile }
+  | { ok: true; signedOut: true }
   | { ok: true; shouldStop: boolean }
   | { ok: true; diagnostics: PageDiagnostics }
   | { ok: true; coverLetter: CoverLetterResult }

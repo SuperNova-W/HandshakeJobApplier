@@ -1,28 +1,43 @@
 import { BACKEND_BASE_URL } from "./constants";
 import type {
+  BackendAuthSession,
   BackendHealth,
   BackendUser,
   CoverLetterResult,
   CreateRunResponse,
-  DocumentMeta,
-  DocumentType,
   JobContext,
   ApplicationStatus,
   OtherDocsResult,
   RunStatus,
   RunSummary,
   ScreeningPrefs,
-  Settings,
-  StoredDocument
+  Settings
 } from "./contracts";
+import { readSessionToken } from "./onboarding";
+
+export class BackendApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message);
+    this.name = "BackendApiError";
+  }
+}
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  if (!headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  const sessionToken = await readSessionToken();
+  if (sessionToken && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${sessionToken}`);
+  }
+
   const response = await fetch(`${BACKEND_BASE_URL}${path}`, {
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...init?.headers
-    }
+    headers
   });
 
   if (!response.ok) {
@@ -36,7 +51,10 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       /* non-JSON error body */
     }
-    throw new Error(detail || `${init?.method ?? "GET"} ${path} failed with ${response.status}`);
+    throw new BackendApiError(
+      detail || `${init?.method ?? "GET"} ${path} failed with ${response.status}`,
+      response.status
+    );
   }
 
   if (response.status === 204 || response.headers.get("content-length") === "0") {
@@ -95,7 +113,7 @@ export function saveScreeningPrefs(prefs: ScreeningPrefs) {
 }
 
 export function authenticateGoogleUser(accessToken: string) {
-  return requestJson<BackendUser>("/api/users/google", {
+  return requestJson<BackendAuthSession>("/api/users/google", {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` }
   });
@@ -111,10 +129,18 @@ export function completeCurrentUserOnboarding() {
   });
 }
 
-export function generateCoverLetter(job: JobContext) {
+export function signOutCurrentUser() {
+  return requestJson<void>("/api/users/current", {
+    method: "DELETE"
+  });
+}
+
+// The resume text is extracted from the user's locally stored resume and sent
+// per request — the backend never stores it.
+export function generateCoverLetter(job: JobContext, resumeText: string | null) {
   return requestJson<CoverLetterResult>("/api/cover-letter", {
     method: "POST",
-    body: JSON.stringify(job)
+    body: JSON.stringify({ ...job, resumeText })
   });
 }
 
@@ -128,9 +154,10 @@ export async function coverLetterPdfBase64(req: {
   company: string;
   jobTitle: string;
 }): Promise<string> {
+  const headers = await authenticatedHeaders({ "Content-Type": "application/json" });
   const response = await fetch(`${BACKEND_BASE_URL}/api/cover-letter/pdf`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(req)
   });
 
@@ -159,11 +186,15 @@ export async function coverLetterPdfBase64(req: {
 // Asks the backend agent to draft the employer-requested document from the user's
 // stored materials (resume, GitHub project, other docs) plus the scraped job
 // context and the employer's instructions.
+// `sources` is the knowledge base (resume, GitHub project, transcript, other
+// docs) the extension extracted from the user's locally stored documents and
+// sends per request — the backend never stores it.
 export function generateOtherDoc(req: {
   jobTitle: string;
   company: string;
   jobDescription: string;
   instructions: string;
+  sources: { label: string; text: string }[];
 }) {
   return requestJson<OtherDocsResult>("/api/other-docs/generate", {
     method: "POST",
@@ -180,9 +211,10 @@ export async function otherDocPdfBase64(req: {
   company: string;
   jobTitle: string;
 }): Promise<string> {
+  const headers = await authenticatedHeaders({ "Content-Type": "application/json" });
   const response = await fetch(`${BACKEND_BASE_URL}/api/other-docs/pdf`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(req)
   });
 
@@ -206,74 +238,11 @@ export async function otherDocPdfBase64(req: {
   return btoa(binary);
 }
 
-// ─── Documents ─────────────────────────────────────────────────────────────────
-
-export function listDocuments() {
-  return requestJson<DocumentMeta[]>("/api/documents");
-}
-
-// Multipart upload — must NOT set Content-Type so the browser adds the boundary,
-// so this bypasses requestJson (which forces application/json).
-export async function uploadDocument(
-  docType: DocumentType,
-  file: File,
-  label?: string
-): Promise<DocumentMeta> {
-  const form = new FormData();
-  form.append("docType", docType);
-  form.append("file", file);
-  if (label) form.append("label", label);
-
-  const response = await fetch(`${BACKEND_BASE_URL}/api/documents`, {
-    method: "POST",
-    body: form
-  });
-
-  if (!response.ok) {
-    let detail = "";
-    try {
-      const body = (await response.json()) as { message?: string; error?: string };
-      detail = body?.message || body?.error || "";
-    } catch {
-      /* ignore */
-    }
-    throw new Error(detail || `Upload failed with ${response.status}`);
+async function authenticatedHeaders(initial?: HeadersInit): Promise<Headers> {
+  const headers = new Headers(initial);
+  const sessionToken = await readSessionToken();
+  if (sessionToken) {
+    headers.set("Authorization", `Bearer ${sessionToken}`);
   }
-  return (await response.json()) as DocumentMeta;
-}
-
-export function deleteDocument(id: string) {
-  return requestJson<void>(`/api/documents/${id}`, { method: "DELETE" });
-}
-
-// Fetches the latest stored document of a given type (e.g. the user's TRANSCRIPT)
-// as base64, or null if none is on file (404). Called from the background worker
-// — content scripts can't reach the backend (CORS allows only the extension
-// origin), and Files don't survive chrome messaging, so the bytes travel as
-// base64 and the content script rebuilds the File to drop into the apply modal.
-export async function documentBase64ByType(docType: DocumentType): Promise<StoredDocument | null> {
-  const response = await fetch(
-    `${BACKEND_BASE_URL}/api/documents/by-type/${encodeURIComponent(docType)}/content`
-  );
-  if (response.status === 404) return null;
-  if (!response.ok) {
-    throw new Error(`Fetching the stored ${docType} document failed with ${response.status}`);
-  }
-
-  const contentType = response.headers.get("content-type") || "application/octet-stream";
-  const disposition = response.headers.get("content-disposition") || "";
-  const match = disposition.match(/filename="?([^"]+)"?/i);
-  const filename = match?.[1] || `${docType.toLowerCase()}.pdf`;
-
-  const buffer = await response.arrayBuffer();
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return { base64: btoa(binary), filename, contentType };
-}
-
-export function documentContentUrl(id: string): string {
-  return `${BACKEND_BASE_URL}/api/documents/${id}/content`;
+  return headers;
 }

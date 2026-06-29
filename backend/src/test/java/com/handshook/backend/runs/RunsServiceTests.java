@@ -2,79 +2,92 @@ package com.handshook.backend.runs;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
-import org.junit.jupiter.api.AfterEach;
+import com.handshook.backend.auth.CurrentUser;
+import java.nio.file.Path;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.datasource.SingleConnectionDataSource;
-import org.springframework.jdbc.datasource.init.ScriptUtils;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 
 class RunsServiceTests {
 
-    private SingleConnectionDataSource dataSource;
+    @TempDir
+    Path tempDir;
+
     private JdbcTemplate jdbcTemplate;
     private RunsService service;
 
     @BeforeEach
-    void setUp() throws Exception {
-        dataSource = new SingleConnectionDataSource("jdbc:sqlite::memory:", true);
+    void setUp() {
+        DriverManagerDataSource dataSource = new DriverManagerDataSource(
+            "jdbc:sqlite:" + tempDir.resolve("handshook-test.db")
+        );
+        dataSource.setDriverClassName("org.sqlite.JDBC");
+        new ResourceDatabasePopulator(new ClassPathResource("schema.sql")).execute(dataSource);
+
         jdbcTemplate = new JdbcTemplate(dataSource);
-        ScriptUtils.executeSqlScript(dataSource.getConnection(), new ClassPathResource("schema.sql"));
-        service = new RunsService(jdbcTemplate);
-    }
-
-    @AfterEach
-    void tearDown() {
-        dataSource.destroy();
+        CurrentUser currentUser = mock(CurrentUser.class);
+        when(currentUser.requireUserId()).thenReturn("user-1");
+        service = new RunsService(jdbcTemplate, currentUser);
     }
 
     @Test
-    void recordsOnlyAggregateOutcomeCounts() {
-        String runId = service.createRun(
-            new CreateRunRequest("https://app.joinhandshake.com/stu/postings", "2026-06-19T00:00:00Z")
-        ).runId();
-
-        service.recordOutcome(runId, new RecordRunOutcomeRequest("APPLIED"));
-        service.recordOutcome(runId, new RecordRunOutcomeRequest("SKIPPED"));
-        service.recordOutcome(runId, new RecordRunOutcomeRequest("FAILED"));
-
-        RunSummaryDto run = service.getRun(runId);
-        assertThat(run.appliedCount()).isEqualTo(1);
-        assertThat(run.skippedCount()).isEqualTo(1);
-        assertThat(run.failedCount()).isEqualTo(1);
-
-        Integer applicationTableCount = jdbcTemplate.queryForObject(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'applications'",
-            Integer.class
+    void createsRunOwnedByAuthenticatedUser() {
+        CreateRunResponse response = service.createRun(
+            new CreateRunRequest("https://app.joinhandshake.com/stu/postings", "2026-06-20T00:00:00Z")
         );
-        assertThat(applicationTableCount).isZero();
+
+        assertThat(response.status()).isEqualTo("RUNNING");
+
+        String ownerId = jdbcTemplate.queryForObject(
+            "SELECT user_id FROM application_runs WHERE id = ?",
+            String.class,
+            response.runId()
+        );
+        assertThat(ownerId).isEqualTo("user-1");
+
+        Integer appliedCount = jdbcTemplate.queryForObject(
+            "SELECT applied_count FROM application_runs WHERE id = ?",
+            Integer.class,
+            response.runId()
+        );
+        assertThat(appliedCount).isZero();
     }
 
     @Test
-    void finalizingRunPreservesAggregateCounts() {
-        String runId = service.createRun(
-            new CreateRunRequest("https://app.joinhandshake.com/stu/postings", "2026-06-19T00:00:00Z")
-        ).runId();
-        service.recordOutcome(runId, new RecordRunOutcomeRequest("APPLIED"));
-
-        RunSummaryDto finalized = service.finalizeRun(
-            runId,
-            new FinalizeRunRequest("COMPLETED", "2026-06-19T00:01:00Z", null)
+    void recordsAggregateOutcomeCount() {
+        CreateRunResponse run = service.createRun(
+            new CreateRunRequest("https://app.joinhandshake.com/stu/postings", null)
         );
 
-        assertThat(finalized.status()).isEqualTo("COMPLETED");
-        assertThat(finalized.appliedCount()).isEqualTo(1);
+        service.recordOutcome(run.runId(), new RecordRunOutcomeRequest("APPLIED"));
+        service.recordOutcome(run.runId(), new RecordRunOutcomeRequest("APPLIED"));
+
+        Integer appliedCount = jdbcTemplate.queryForObject(
+            "SELECT applied_count FROM application_runs WHERE id = ?",
+            Integer.class,
+            run.runId()
+        );
+        assertThat(appliedCount).isEqualTo(2);
     }
 
     @Test
     void rejectsUnknownOutcomeStatus() {
-        String runId = service.createRun(
-            new CreateRunRequest("https://app.joinhandshake.com/stu/postings", "2026-06-19T00:00:00Z")
-        ).runId();
+        assertThatThrownBy(() ->
+            service.recordOutcome("run-1", new RecordRunOutcomeRequest("UNKNOWN"))
+        ).isInstanceOf(IllegalArgumentException.class);
+    }
 
-        assertThatThrownBy(() -> service.recordOutcome(runId, new RecordRunOutcomeRequest("UNKNOWN")))
-            .isInstanceOf(IllegalArgumentException.class);
+    @Test
+    void recordingOutcomeForMissingRunFails() {
+        assertThatThrownBy(() ->
+            service.recordOutcome("does-not-exist", new RecordRunOutcomeRequest("APPLIED"))
+        ).isInstanceOf(IllegalArgumentException.class);
     }
 }

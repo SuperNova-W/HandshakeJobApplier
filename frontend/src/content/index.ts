@@ -252,6 +252,11 @@ interface RunSession {
   // run session (not only this page's JS memory) so "remember my choice" keeps
   // working after Handshake route changes or hard reloads.
   otherDocsRemembered?: OtherDocsAction | null;
+  // Whether the user ticked "auto-approve cover letters for the rest of this run"
+  // in the review overlay. Lives on the run session (like otherDocsRemembered) so
+  // it survives Handshake's mid-run reloads/route changes, yet resets for every
+  // new run and is gone once the browser session ends.
+  coverLetterAutoApproved?: boolean;
   // Job ids already handled this run (applied/skipped). Marked seen BEFORE we
   // apply, so a reload mid-application skips that job rather than re-submitting it.
   seenIds?: string[];
@@ -1005,6 +1010,7 @@ async function continueSessionRun(): Promise<void> {
     if (session.screening) screeningPrefs = normalizeScreeningPrefs(session.screening);
     inPlaceStop = false;
     otherDocsRemembered = session.otherDocsRemembered ?? null;
+    coverLetterAutoApprove = session.coverLetterAutoApproved ?? false;
     setTimeout(
       () =>
         void runListInPlace(session.runId, session.settings, {
@@ -1032,6 +1038,7 @@ async function continueSessionRun(): Promise<void> {
     }
     if (session.screening) screeningPrefs = normalizeScreeningPrefs(session.screening);
     otherDocsRemembered = session.otherDocsRemembered ?? null;
+    coverLetterAutoApprove = session.coverLetterAutoApproved ?? false;
     setTimeout(() => void runCurrentDetailOnce(session.runId, session.settings), 400);
     return;
   }
@@ -2341,7 +2348,12 @@ async function attachStoredTranscript(): Promise<TranscriptOutcome> {
   }
 
   const section = transcriptSection();
-  let input = (section ?? document).querySelector<HTMLInputElement>('input[type="file"]');
+  // Anchor on the "transcript" heading and take the (empty) input that follows it,
+  // so we never grab the resume or cover-letter input by document order — the bug
+  // that put the transcript in the cover-letter field.
+  let input =
+    (section ? fileInputAfterHeading(section, /transcript/i) : null) ??
+    findSectionFileInput(/transcript/i);
   if (!input) {
     // Handshake hides the file input behind an "Upload new" button; click it to
     // reveal the input, then look again (it may render outside the section).
@@ -2353,8 +2365,9 @@ async function attachStoredTranscript(): Promise<TranscriptOutcome> {
       uploadBtn.click();
       await sleep(600);
     }
+    const reSection = transcriptSection();
     input =
-      (section ?? document).querySelector<HTMLInputElement>('input[type="file"]') ??
+      (reSection ? fileInputAfterHeading(reSection, /transcript/i) : null) ??
       findSectionFileInput(/transcript/i);
   }
   if (!input) {
@@ -2503,24 +2516,30 @@ function hasCoverLetterUpload(): boolean {
 // transcript/screening prerequisites that normally run before cover-letter
 // handling.
 async function ensureCoverLetterFormReady(expectedJobId?: string): Promise<boolean> {
-  if (coverLetterSection() && findSubmitOrConfirm()) return true;
+  const onExpectedJob = () =>
+    !expectedJobId || extractJobId(window.location.href) === expectedJobId;
 
+  // Ready — but only if we're still on the job we generated for. A drifted page
+  // can show a different job's (wrong) cover-letter form; never attach there.
+  if (onExpectedJob() && coverLetterSection() && findSubmitOrConfirm()) return true;
+
+  // If the page drifted to a DIFFERENT job (e.g. its modal timed out during the
+  // review), do not attach this job's letter to another job's form — bail so the
+  // caller skips cleanly. Attach-before-review already put the letter on the right
+  // modal, so this only trips when the modal was actually lost.
   const currentJobId = extractJobId(window.location.href);
   if (expectedJobId && currentJobId && currentJobId !== expectedJobId) {
-    warn(
-      `Cover-letter form disappeared after the selected job changed ` +
-        `(${expectedJobId} → ${currentJobId}); refusing to attach to the wrong job.`
-    );
+    warn(`Selected job changed (${expectedJobId} → ${currentJobId}); not attaching to the wrong job.`);
     return false;
   }
 
   const applyBtn = findApplyButton();
   if (!applyBtn || applyBtn.disabled) {
-    warn("Cover-letter form disappeared and the current job has no enabled Apply button to reopen it.");
+    warn("Cover-letter form is closed and the current job has no enabled Apply button to reopen it.");
     return false;
   }
 
-  log("Cover-letter form was remounted/closed while generating; reopening the current job application.");
+  log("Reopening the application to restore the cover-letter form.");
   applyBtn.click();
   await waitForApplyModal(8000);
 
@@ -2539,7 +2558,7 @@ async function ensureCoverLetterFormReady(expectedJobId?: string): Promise<boole
     await sleep(400);
   }
 
-  const ready = !!coverLetterSection() && !!findSubmitOrConfirm();
+  const ready = onExpectedJob() && !!coverLetterSection() && !!findSubmitOrConfirm();
   if (!ready) {
     dumpCoverLetterUploadState("reopen-form-not-ready");
   }
@@ -2851,13 +2870,33 @@ function showLoadingOverlay(message: string): () => void {
 
 type CoverLetterAction = "submit" | "regenerate" | "skip" | "stop";
 
+// When the user ticks "auto-approve cover letters for the rest of this run" in the
+// review overlay, subsequent jobs skip the review modal and submit the generated
+// draft as-is. Held in page memory AND mirrored to the run session so it survives
+// Handshake's mid-run reloads/route changes — but resets for every new run and is
+// gone once the browser session ends (so a fresh login/visit re-asks for approval).
+let coverLetterAutoApprove = false;
+
+async function rememberCoverLetterAutoApprove(): Promise<void> {
+  coverLetterAutoApprove = true;
+  try {
+    const session = await getSession();
+    if (!session || session.shouldStop) return;
+    await saveSession({ ...session, coverLetterAutoApproved: true });
+  } catch (err) {
+    // Keep the in-memory behavior working even if session persistence fails.
+    warn("Could not persist the cover-letter auto-approve choice.", err);
+  }
+}
+
 // Overlay: show the drafted cover letter (editable) and ask the user whether to
-// submit. Resolves with their choice plus the (possibly edited) final text.
+// submit. Resolves with their choice, the (possibly edited) final text, and
+// whether they asked to auto-approve cover letters for the rest of this run.
 function promptCoverLetterReview(
   title: string,
   company: string,
   initialText: string
-): Promise<{ action: CoverLetterAction; coverLetter: string }> {
+): Promise<{ action: CoverLetterAction; coverLetter: string; autoApprove: boolean }> {
   return new Promise((resolve) => {
     const Z = "2147483647";
     const backdrop = document.createElement("div");
@@ -2914,6 +2953,25 @@ function promptCoverLetterReview(
       marginBottom: "14px"
     });
 
+    // Checkbox sits right below the draft (the approval gate) so the user can opt
+    // out of reviewing every subsequent cover letter in this run. It only takes
+    // effect when paired with "Approve & submit" — the run-scoped consent.
+    const autoRow = document.createElement("label");
+    Object.assign(autoRow.style, {
+      display: "flex",
+      alignItems: "center",
+      gap: "8px",
+      fontSize: "13px",
+      color: "#334155",
+      margin: "0 2px 14px",
+      cursor: "pointer"
+    });
+    const autoApprove = document.createElement("input");
+    autoApprove.type = "checkbox";
+    const autoText = document.createElement("span");
+    autoText.textContent = "Auto-approve & submit cover letters for the rest of this run (skip this review)";
+    autoRow.append(autoApprove, autoText);
+
     const btnWrap = document.createElement("div");
     Object.assign(btnWrap.style, { display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "flex-end" });
 
@@ -2926,9 +2984,10 @@ function promptCoverLetterReview(
 
     function close(action: CoverLetterAction) {
       const text = textarea.value;
+      const auto = autoApprove.checked;
       backdrop.remove();
       document.removeEventListener("keydown", onKey, true);
-      resolve({ action, coverLetter: text });
+      resolve({ action, coverLetter: text, autoApprove: auto });
     }
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
@@ -2963,7 +3022,7 @@ function promptCoverLetterReview(
       btnWrap.appendChild(btn);
     }
 
-    card.append(h, sub, note, textarea, btnWrap);
+    card.append(h, sub, note, textarea, autoRow, btnWrap);
     backdrop.appendChild(card);
     document.addEventListener("keydown", onKey, true);
     (document.body ?? document.documentElement).appendChild(backdrop);
@@ -2979,6 +3038,8 @@ async function handleCoverLetterRequest(
   base: { handshakeJobId: string; jobUrl: string; title: string; company: string },
   job: JobContext
 ): Promise<JobResult> {
+  const originalJobId = base.handshakeJobId;
+
   // Generate (with a working-overlay), regenerating if the user asks.
   let removeLoading = showLoadingOverlay("Writing your cover letter…");
   let gen = await composeCoverLetterText(job);
@@ -2989,51 +3050,63 @@ async function handleCoverLetterRequest(
     return { ...base, status: "SKIPPED", skipReason: "COVER_LETTER_FAILED" };
   }
 
-  // Review loop — the user can edit, regenerate, skip, stop, or approve.
   let text = gen.coverLetter;
-  for (;;) {
-    const decision = await promptCoverLetterReview(base.title, base.company, text);
-    text = decision.coverLetter;
 
-    if (decision.action === "regenerate") {
-      removeLoading = showLoadingOverlay("Rewriting your cover letter…");
-      gen = await composeCoverLetterText(job);
-      removeLoading();
-      if ("error" in gen) {
-        warn(`cover-letter regeneration failed: ${gen.error}`);
-        // Keep the current text and let the user decide again.
+  // Review FIRST — nothing is uploaded until the user approves. The user can
+  // edit, regenerate, skip, stop, or approve. Only on approval do we render the
+  // PDF, attach it to the field, and submit. EXCEPTION: once the user ticked
+  // "auto-approve for the rest of this run", later jobs submit the generated draft
+  // straight away without re-showing this overlay (the choice resets each run).
+  if (!coverLetterAutoApprove) {
+    for (;;) {
+      const decision = await promptCoverLetterReview(base.title, base.company, text);
+      text = decision.coverLetter;
+
+      if (decision.action === "regenerate") {
+        removeLoading = showLoadingOverlay("Rewriting your cover letter…");
+        gen = await composeCoverLetterText(job);
+        removeLoading();
+        if ("error" in gen) {
+          warn(`cover-letter regeneration failed: ${gen.error}`);
+          // Keep the current text and let the user decide again.
+          continue;
+        }
+        text = gen.coverLetter;
         continue;
       }
-      text = gen.coverLetter;
-      continue;
-    }
 
-    if (decision.action === "skip") {
-      dismissOpenDialog();
-      return { ...base, status: "SKIPPED", skipReason: "COVER_LETTER_DECLINED" };
+      if (decision.action === "skip") {
+        dismissOpenDialog();
+        return { ...base, status: "SKIPPED", skipReason: "COVER_LETTER_DECLINED" };
+      }
+      if (decision.action === "stop") {
+        inPlaceStop = true;
+        dismissOpenDialog();
+        return { ...base, status: "SKIPPED", skipReason: "USER_STOPPED" };
+      }
+      // Approved. If they also asked to auto-approve the rest of this run, remember
+      // it so the following jobs skip this overlay.
+      if (decision.autoApprove) await rememberCoverLetterAutoApprove();
+      break; // submit
     }
-    if (decision.action === "stop") {
-      inPlaceStop = true;
-      dismissOpenDialog();
-      return { ...base, status: "SKIPPED", skipReason: "USER_STOPPED" };
-    }
-    break; // submit
   }
 
-  // Approved — render the (possibly edited) letter, attach it, and submit.
-  const pdf = await renderCoverLetterPdf(text, base.company, base.title);
-  if (!pdf) {
+  // Approved — now render the approved text to a PDF and attach it to the
+  // ORIGINAL job's cover-letter field. attachCoverLetterFile re-pins to that job
+  // (reopening the apply modal if needed) when the page drifted during review.
+  removeLoading = showLoadingOverlay("Uploading your cover letter…");
+  const rendered = await renderCoverLetterPdf(text, base.company, base.title);
+  const attached = rendered
+    ? await attachCoverLetterFile(rendered.base64, rendered.filename, originalJobId)
+    : false;
+  removeLoading();
+  if (!rendered) {
     warn("Cover-letter PDF render failed.");
     dismissOpenDialog();
     return { ...base, status: "SKIPPED", skipReason: "COVER_LETTER_FAILED" };
   }
-  const accepted = await attachCoverLetterFile(
-    pdf.base64,
-    pdf.filename,
-    base.handshakeJobId
-  );
-  if (!accepted) {
-    warn("Cover letter uploaded but Handshake never accepted it (stuck in the processing state).");
+  if (!attached || !coverLetterSection() || !findSubmitOrConfirm()) {
+    warn("Cover letter could not be attached to the right job.");
     dumpUploadWidgets("coverletter-never-accepted");
     dismissOpenDialog();
     return { ...base, status: "SKIPPED", skipReason: "COVER_LETTER_FAILED" };
@@ -3480,23 +3553,92 @@ async function renderOtherDocPdf(
   }
 }
 
+// Other-docs generation/review takes a multi-second backend round-trip, long
+// enough for Handshake to remount or close its apply form. If we then attach
+// without it, the file lands in the profile-wide document pool (the only file
+// input left on the page) and the job is never actually submitted. Mirror
+// ensureCoverLetterFormReady: before attaching, confirm the SAME job's live apply
+// form is present, reopening it + restoring transcript/screening if it vanished.
+async function ensureOtherDocsFormReady(expectedJobId?: string): Promise<boolean> {
+  const onExpectedJob = () =>
+    !expectedJobId || extractJobId(window.location.href) === expectedJobId;
+
+  // Ready — but only if we're still on the job we generated for.
+  if (onExpectedJob() && otherDocsSection() && findSubmitOrConfirm()) return true;
+
+  // Page drifted to a DIFFERENT job — never attach this job's document to another
+  // job's form. Bail so the caller skips cleanly (without polluting the profile pool).
+  const currentJobId = extractJobId(window.location.href);
+  if (expectedJobId && currentJobId && currentJobId !== expectedJobId) {
+    warn(`Selected job changed (${expectedJobId} → ${currentJobId}); not attaching the document to the wrong job.`);
+    return false;
+  }
+
+  const applyBtn = findApplyButton();
+  if (!applyBtn || applyBtn.disabled) {
+    warn("Other-documents form is closed and the current job has no enabled Apply button to reopen it.");
+    return false;
+  }
+
+  log("Reopening the application to restore the other-documents form.");
+  applyBtn.click();
+  await waitForApplyModal(8000);
+
+  const transcriptOutcome = await attachStoredTranscript();
+  if (transcriptOutcome === "no-transcript-on-file" || transcriptOutcome === "failed") {
+    warn(`Could not restore the reopened other-documents form (${transcriptOutcome}).`);
+    return false;
+  }
+
+  if (hasScreeningQuestions()) {
+    const screening = answerScreeningQuestions();
+    if (!screening.ok) {
+      warn(`Could not restore screening answers in the reopened other-documents form (${screening.reason}).`);
+      return false;
+    }
+    await sleep(400);
+  }
+
+  const ready = onExpectedJob() && !!otherDocsSection() && !!findSubmitOrConfirm();
+  if (!ready) dumpUploadWidgets("otherdocs-reopen-not-ready");
+  return ready;
+}
+
 // Drop a rendered document PDF into the apply modal's "other required documents"
-// upload field. Mirrors attachCoverLetterFile: clicks "Upload new" to reveal a
-// hidden input if needed, then waits for Handshake to fully ACCEPT the file
-// (Submit stays disabled until then).
-async function attachOtherDocFile(pdfBase64: string, filename: string): Promise<boolean> {
-  let input = findOtherDocsFileInput();
+// upload field. Mirrors attachCoverLetterFile: re-pins to the expected job's live
+// form first, then finds the input STRICTLY within the other-docs section (never
+// a page-wide last-input fallback, which would hit the profile document pool),
+// clicking "Upload new" to reveal a hidden input if needed, and waits for
+// Handshake to fully ACCEPT the file (Submit stays disabled until then).
+async function attachOtherDocFile(
+  pdfBase64: string,
+  filename: string,
+  expectedJobId?: string
+): Promise<boolean> {
+  if (!(await ensureOtherDocsFormReady(expectedJobId))) {
+    dumpUploadWidgets("otherdocs-form-not-ready-before-attach");
+    return false;
+  }
+  const section = otherDocsSection();
+  if (!section) {
+    warn("Could not find the other-documents section in the apply modal.");
+    dumpUploadWidgets("otherdocs-no-section");
+    return false;
+  }
+
+  const sectionDocsRe = /other required documents|other documents/i;
+  let input = fileInputAfterHeading(section, sectionDocsRe);
   if (!input) {
-    const section = otherDocsSection();
     const uploadBtn = Array.from(
-      (section ?? document).querySelectorAll<HTMLButtonElement>("button")
+      section.querySelectorAll<HTMLButtonElement>("button")
     ).find((b) => /upload/i.test(b.textContent ?? ""));
     if (uploadBtn) {
       log("clicking the other-docs section's 'Upload new' to reveal its file input.");
       uploadBtn.click();
       await sleep(600);
     }
-    input = findOtherDocsFileInput();
+    const reSection = otherDocsSection();
+    input = reSection ? fileInputAfterHeading(reSection, sectionDocsRe) : null;
   }
   if (!input) {
     warn("Could not find the other-documents file input in the apply modal.");
@@ -3650,6 +3792,7 @@ async function handleOtherDocsAgent(
   job: JobContext,
   instructions: string
 ): Promise<JobResult> {
+  const originalJobId = base.handshakeJobId;
   let removeLoading = showLoadingOverlay("Drafting your document from your files…");
   let gen = await generateOtherDocText(job, instructions);
   removeLoading();
@@ -3695,9 +3838,9 @@ async function handleOtherDocsAgent(
     dismissOpenDialog();
     return { ...base, status: "SKIPPED", skipReason: "OTHER_DOCS_UPLOAD_FAILED" };
   }
-  const accepted = await attachOtherDocFile(pdf.base64, pdf.filename);
+  const accepted = await attachOtherDocFile(pdf.base64, pdf.filename, originalJobId);
   if (!accepted) {
-    warn("Document uploaded but Handshake never accepted it.");
+    warn("Document could not be attached to the right job's apply form.");
     dismissOpenDialog();
     return { ...base, status: "SKIPPED", skipReason: "OTHER_DOCS_UPLOAD_FAILED" };
   }
@@ -3895,6 +4038,7 @@ async function handleStartRun(
 
   screeningPrefs = normalizeScreeningPrefs(screening); // answers used by answerScreeningQuestions() this run
   otherDocsRemembered = null; // every new run starts without a remembered choice
+  coverLetterAutoApprove = false; // and re-asks for cover-letter approval each run
   group(`handleStartRun runId=${runId}`);
   log("url", window.location.href);
   log("pageSupport", pageSupport, "| isOnJobDetailPage", isOnJobDetailPage());
@@ -3916,7 +4060,8 @@ async function handleStartRun(
       shouldStop: false,
       mode: "detail",
       screening: screeningPrefs,
-      otherDocsRemembered: null
+      otherDocsRemembered: null,
+      coverLetterAutoApproved: false
     };
     await saveSession(session);
     // Process immediately after sending the response
@@ -3945,6 +4090,7 @@ async function handleStartRun(
     mode: "list",
     screening: screeningPrefs,
     otherDocsRemembered: null,
+    coverLetterAutoApproved: false,
     seenIds: [],
     processed: 0,
     startPage: currentPageNumber()

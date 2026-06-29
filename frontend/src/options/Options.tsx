@@ -17,6 +17,7 @@ import {
   GraduationCap,
   ListChecks,
   LogIn,
+  LogOut,
   Mail,
   Plus,
   RefreshCw,
@@ -29,15 +30,10 @@ import {
   X,
   type LucideIcon
 } from "lucide-react";
-import {
-  deleteDocument,
-  documentContentUrl,
-  getScreeningPrefs,
-  listDocuments,
-  saveScreeningPrefs,
-  uploadDocument
-} from "../shared/backendApi";
-import { BACKEND_BASE_URL, DEFAULT_SCREENING, normalizeScreeningPrefs } from "../shared/constants";
+import { getScreeningPrefs, saveScreeningPrefs } from "../shared/backendApi";
+import { deleteDocument, downloadDocument, listDocuments } from "../shared/localDocuments";
+import { uploadDocument } from "../shared/documentText";
+import { DEFAULT_SCREENING, normalizeScreeningPrefs } from "../shared/constants";
 import { markOnboardingComplete, readOnboardingState } from "../shared/onboarding";
 import type {
   DocumentMeta,
@@ -167,7 +163,7 @@ function Options() {
     try {
       setScreening(normalizeScreeningPrefs(await getScreeningPrefs()));
     } catch {
-      /* leave defaults; the documents status surfaces backend errors */
+      /* leave defaults; the documents status surfaces load errors */
     }
   }
 
@@ -210,14 +206,19 @@ function Options() {
     } catch (error) {
       setStatus(
         error instanceof Error
-          ? `Couldn't reach the backend (${error.message}). Is it running on ${BACKEND_BASE_URL}?`
-          : "Couldn't load documents."
+          ? `Couldn't load your saved documents (${error.message}).`
+          : "Couldn't load your saved documents."
       );
     }
   }
 
-  async function handleUpload(docType: DocumentType, file: File, label?: string) {
-    setBusy(docType + (label ?? ""));
+  async function handleUpload(
+    docType: DocumentType,
+    file: File,
+    label?: string,
+    busyKey = docType + (label ?? "")
+  ) {
+    setBusy(busyKey);
     setStatus(`Uploading ${file.name}...`);
     try {
       await uploadDocument(docType, file, label);
@@ -245,11 +246,13 @@ function Options() {
     }
   }
 
-  async function handleGoogleLogin() {
+  async function handleGoogleLogin(switchAccount = false) {
     setAuthBusy(true);
-    setAuthStatus("Opening Google sign-in...");
+    setAuthStatus(switchAccount ? "Switching Google accounts..." : "Opening Google sign-in...");
     try {
-      const response = await sendExtensionMessage({ type: "runtime/google-login" });
+      const response = await sendExtensionMessage({
+        type: switchAccount ? "runtime/google-switch-account" : "runtime/google-login"
+      });
       if (!response) {
         throw new Error("Open onboarding from the installed extension to sign in with Google.");
       }
@@ -261,9 +264,34 @@ function Options() {
       }
       setGoogleUser(response.user);
       setAuthStatus(`Signed in as ${response.user.email}.`);
+      await Promise.all([refresh(), loadScreening()]);
       setOnboardingStep("documents");
     } catch (error) {
       setAuthStatus(error instanceof Error ? error.message : "Google sign-in failed.");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function handleGoogleLogout() {
+    setAuthBusy(true);
+    setAuthStatus("Signing out...");
+    try {
+      const response = await sendExtensionMessage({ type: "runtime/google-logout" });
+      if (!response) {
+        throw new Error("Open this page from the installed extension to sign out.");
+      }
+      if (!response.ok) {
+        throw new Error(response.error);
+      }
+      setGoogleUser(null);
+      setDocuments([]);
+      setScreening(DEFAULT_SCREENING);
+      setShowOnboarding(true);
+      setOnboardingStep("auth");
+      setAuthStatus("Signed out.");
+    } catch (error) {
+      setAuthStatus(error instanceof Error ? error.message : "Sign-out failed.");
     } finally {
       setAuthBusy(false);
     }
@@ -303,7 +331,40 @@ function Options() {
 
   function onOtherFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
-    if (file) void handleUpload("OTHER", file, otherLabel.trim() || undefined);
+    const label = otherLabel.trim();
+    if (!label) {
+      setStatus("Add a short label before choosing a file.");
+      event.target.value = "";
+      return;
+    }
+    if (file) {
+      event.target.value = "";
+      void handleUpload("OTHER", file, label, "OTHER_NEW");
+    }
+  }
+
+  async function replaceOtherDocument(doc: DocumentMeta, file: File) {
+    setBusy(doc.id);
+    setStatus(`Replacing ${doc.filename}...`);
+    let replacement: DocumentMeta | null = null;
+    try {
+      replacement = await uploadDocument("OTHER", file, doc.label ?? undefined);
+      await deleteDocument(doc.id);
+      await refresh();
+      setStatus(`Replaced ${doc.filename} with ${file.name}.`);
+    } catch (error) {
+      if (replacement) {
+        try {
+          await deleteDocument(replacement.id);
+        } catch {
+          /* best-effort rollback; refresh below will show the actual state */
+        }
+        await refresh();
+      }
+      setStatus(error instanceof Error ? error.message : "Replace failed.");
+    } finally {
+      setBusy(null);
+    }
   }
 
   const otherDocs = documents.filter((d) => d.docType === "OTHER");
@@ -412,9 +473,20 @@ function Options() {
               type="button"
               className="btn btn-secondary onboarding-secondary"
               disabled={authBusy}
-              onClick={() => void handleGoogleLogin()}
+              onClick={() => void handleGoogleLogin(true)}
             >
               <RefreshCw size={15} aria-hidden="true" /> Use a different account
+            </button>
+          )}
+
+          {googleUser && (
+            <button
+              type="button"
+              className="btn btn-danger onboarding-secondary"
+              disabled={authBusy}
+              onClick={() => void handleGoogleLogout()}
+            >
+              <LogOut size={15} aria-hidden="true" /> Sign out
             </button>
           )}
 
@@ -444,6 +516,7 @@ function Options() {
           otherInputRef={otherInputRef}
           busy={busy}
           onOtherFileChange={onOtherFileChange}
+          onReplace={(doc, file) => void replaceOtherDocument(doc, file)}
           onDelete={(doc) => void handleDelete(doc)}
         />
       );
@@ -558,10 +631,25 @@ function Options() {
       <header className="page-header">
         <h1>Application Documents</h1>
         <p>
-          Store the documents Handshake applications ask for. Files are kept locally in your
-          companion backend ({BACKEND_BASE_URL}) and never leave your machine.
+          Store the documents Handshake applications ask for. Files stay on this device — saved in
+          the extension's local storage, never uploaded to a server.
         </p>
       </header>
+
+      {googleUser && (
+        <section className="account-management" aria-label="Signed-in Google account">
+          <AccountPill user={googleUser} />
+          <button
+            type="button"
+            className="btn btn-danger"
+            disabled={authBusy}
+            onClick={() => void handleGoogleLogout()}
+          >
+            <LogOut size={15} aria-hidden="true" />
+            {authBusy ? "Signing out..." : "Sign out"}
+          </button>
+        </section>
+      )}
 
       {renderDocumentGrid()}
 
@@ -572,6 +660,7 @@ function Options() {
         otherInputRef={otherInputRef}
         busy={busy}
         onOtherFileChange={onOtherFileChange}
+        onReplace={(doc, file) => void replaceOtherDocument(doc, file)}
         onDelete={(doc) => void handleDelete(doc)}
       />
 
@@ -615,23 +704,12 @@ function DocumentSlotCard({
               {formatSize(doc.sizeBytes)} · {formatDate(doc.uploadedAt)}
             </span>
           </div>
-          <div className="actions">
-            <a className="btn btn-ghost" href={documentContentUrl(doc.id)}>
-              <Download size={15} aria-hidden="true" /> Download
-            </a>
-            <label className="btn btn-secondary">
-              <RefreshCw size={15} aria-hidden="true" /> Replace
-              <input type="file" hidden onChange={onFileChange} />
-            </label>
-            <button
-              className="btn btn-danger"
-              type="button"
-              disabled={busy === doc.id}
-              onClick={() => onDelete(doc)}
-            >
-              <Trash2 size={15} aria-hidden="true" /> Remove
-            </button>
-          </div>
+          <DocumentActionButtons
+            doc={doc}
+            busy={busy}
+            onFileChange={onFileChange}
+            onDelete={onDelete}
+          />
         </div>
       ) : (
         <label className="btn btn-primary upload-label">
@@ -644,6 +722,49 @@ function DocumentSlotCard({
   );
 }
 
+function DocumentActionButtons({
+  doc,
+  busy,
+  onFileChange,
+  onDelete
+}: {
+  doc: DocumentMeta;
+  busy: string | null;
+  onFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  onDelete: (doc: DocumentMeta) => void;
+}) {
+  const isBusy = busy === doc.id;
+
+  return (
+    <div className="actions">
+      <button
+        className="btn btn-ghost"
+        type="button"
+        disabled={isBusy}
+        onClick={() => void downloadDocument(doc.id)}
+      >
+        <Download size={15} aria-hidden="true" /> Download
+      </button>
+      <label
+        className={`btn btn-secondary${isBusy ? " is-disabled" : ""}`}
+        aria-disabled={isBusy}
+      >
+        <RefreshCw size={15} aria-hidden="true" />
+        {isBusy ? "Replacing..." : "Replace"}
+        <input type="file" hidden disabled={isBusy} onChange={onFileChange} />
+      </label>
+      <button
+        className="btn btn-danger"
+        type="button"
+        disabled={isBusy}
+        onClick={() => onDelete(doc)}
+      >
+        <Trash2 size={15} aria-hidden="true" /> Remove
+      </button>
+    </div>
+  );
+}
+
 function OtherDocumentsCard({
   otherDocs,
   otherLabel,
@@ -651,6 +772,7 @@ function OtherDocumentsCard({
   otherInputRef,
   busy,
   onOtherFileChange,
+  onReplace,
   onDelete
 }: {
   otherDocs: DocumentMeta[];
@@ -659,8 +781,15 @@ function OtherDocumentsCard({
   otherInputRef: React.RefObject<HTMLInputElement | null>;
   busy: string | null;
   onOtherFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  onReplace: (doc: DocumentMeta, file: File) => void;
   onDelete: (doc: DocumentMeta) => void;
 }) {
+  function handleReplaceChange(event: ChangeEvent<HTMLInputElement>, doc: DocumentMeta) {
+    const file = event.target.files?.[0];
+    if (file) onReplace(doc, file);
+    event.target.value = "";
+  }
+
   return (
     <section className="card other-card">
       <div className="card-head">
@@ -670,50 +799,93 @@ function OtherDocumentsCard({
         <span className="badge">{otherDocs.length}</span>
       </div>
       <p className="hint">
-        Anything else an application requests (writing sample, portfolio, references...). Add a short
-        label so you can tell them apart.
+        Keep reusable files that do not fit the core slots, such as writing samples, portfolios,
+        references, or project briefs.
       </p>
 
-      <div className="other-add">
-        <input
-          className="text-input"
-          type="text"
-          placeholder="Label (e.g. Writing sample)"
-          value={otherLabel}
-          onChange={(e) => setOtherLabel(e.target.value)}
-        />
-        <label className="btn btn-primary">
-          <Plus size={16} aria-hidden="true" /> Add document
-          <input ref={otherInputRef} type="file" hidden onChange={onOtherFileChange} />
-        </label>
+      <div className="other-upload-panel">
+        <div className="other-upload-copy">
+          <span className="other-upload-icon" aria-hidden="true">
+            <Plus size={18} />
+          </span>
+          <div>
+            <strong>Add another document</strong>
+            <span>Give it a clear label, then choose the file from your computer.</span>
+          </div>
+        </div>
+        <div className="other-add">
+          <div className="other-label-field">
+            <label className="field-label" htmlFor="other-document-label">
+              Document label
+            </label>
+            <input
+              id="other-document-label"
+              className="text-input"
+              type="text"
+              placeholder="e.g. Writing sample"
+              value={otherLabel}
+              onChange={(e) => setOtherLabel(e.target.value)}
+              maxLength={80}
+            />
+          </div>
+          <label
+            className={`btn btn-primary other-upload-button${
+              !otherLabel.trim() || busy === "OTHER_NEW" ? " is-disabled" : ""
+            }`}
+            aria-disabled={!otherLabel.trim() || busy === "OTHER_NEW"}
+          >
+            <Upload size={16} aria-hidden="true" />
+            {busy === "OTHER_NEW" ? "Uploading..." : "Choose file"}
+            <input
+              ref={otherInputRef}
+              type="file"
+              hidden
+              disabled={!otherLabel.trim() || busy === "OTHER_NEW"}
+              onChange={onOtherFileChange}
+            />
+          </label>
+        </div>
       </div>
 
-      {otherDocs.length > 0 && (
-        <ul className="other-list">
-          {otherDocs.map((doc) => (
-            <li key={doc.id}>
-              <div className="file-meta">
-                <strong>{doc.label ?? "(no label)"}</strong>
-                <span>
-                  {doc.filename} · {formatSize(doc.sizeBytes)} · {formatDate(doc.uploadedAt)}
-                </span>
-              </div>
-              <div className="actions">
-                <a className="btn btn-ghost" href={documentContentUrl(doc.id)}>
-                  <Download size={15} aria-hidden="true" /> Download
-                </a>
-                <button
-                  className="btn btn-danger"
-                  type="button"
-                  disabled={busy === doc.id}
-                  onClick={() => onDelete(doc)}
-                >
-                  <Trash2 size={15} aria-hidden="true" /> Remove
-                </button>
-              </div>
-            </li>
-          ))}
-        </ul>
+      {otherDocs.length === 0 ? (
+        <div className="other-empty">
+          <Files size={22} aria-hidden="true" />
+          <div>
+            <strong>No other documents yet</strong>
+            <span>Add files here when an application asks for something beyond your core documents.</span>
+          </div>
+        </div>
+      ) : (
+        <div className="other-library">
+          <div className="other-library-head">
+            <strong>Your other documents</strong>
+            <span>{otherDocs.length} saved</span>
+          </div>
+          <ul className="other-list">
+            {otherDocs.map((doc) => (
+              <li key={doc.id}>
+                <div className="other-document-main">
+                  <span className="other-document-icon" aria-hidden="true">
+                    <FileText size={18} />
+                  </span>
+                  <div className="file-meta">
+                    <strong>{doc.label ?? doc.filename}</strong>
+                    <span className="other-filename">{doc.filename}</span>
+                    <span>
+                      {formatSize(doc.sizeBytes)} · Added {formatDate(doc.uploadedAt)}
+                    </span>
+                  </div>
+                </div>
+                <DocumentActionButtons
+                  doc={doc}
+                  busy={busy}
+                  onFileChange={(event) => handleReplaceChange(event, doc)}
+                  onDelete={onDelete}
+                />
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </section>
   );

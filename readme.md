@@ -48,9 +48,9 @@ React popup UI
   | chrome.runtime messages
   v
 MV3 background service worker
-  | messages                     | localhost HTTP
+  | messages                     | HTTPS
   v                              v
-Handshake content script      Spring Boot companion API
+Handshake content script      API Gateway + Lambda
   |                              |
   | DOM automation               v
   |                           MongoDB Atlas
@@ -74,7 +74,7 @@ is deployed separately as a static Netlify landing page.
 | Backend | Java 21, Spring Boot 3.4, Maven, Spring Web, Validation, Actuator |
 | Persistence | MongoDB Atlas, document collections, compound indexes, document upload metadata/content storage |
 | AI/document services | OpenAI Chat Completions (`gpt-4o`) via Spring `RestClient`, Apache PDFBox, OpenPDF |
-| Ops/dev workflow | Localhost-only API, rolling file logs, Spring Actuator, health endpoint with live DB connectivity, Netlify static landing page |
+| Ops/dev workflow | AWS Lambda, API Gateway, CloudFormation/SAM, CloudWatch Logs, Spring Actuator, Netlify static landing page |
 
 ## Engineering Highlights
 
@@ -87,14 +87,15 @@ is deployed separately as a static Netlify landing page.
 - **Lean persistence:** the backend stores aggregate run counters but no job IDs,
   titles, companies, URLs, or per-job application history. Handshake remains the
   source of truth for submitted applications.
-- **Document pipeline:** uploaded PDFs/text files are stored locally, extracted
+- **Document pipeline:** uploaded PDFs/text files are stored per user in MongoDB, extracted
   with PDFBox for model context, reviewed in-browser, rendered with OpenPDF, and
   attached through file inputs using browser-native `File`/`DataTransfer` APIs.
 
 ## Backend API
 
-All API routes are served from `http://127.0.0.1:8765` and CORS-restricted to the
-Chrome extension origin.
+Production API routes are served through API Gateway and CORS-restricted to the
+stable Chrome extension origin. Local development defaults to
+`http://127.0.0.1:8765`.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
@@ -105,7 +106,9 @@ Chrome extension origin.
 | `GET` | `/api/runs` | Fetch recent run history for the popup |
 | `POST` | `/api/runs/{runId}/outcomes` | Increment an aggregate applied, skipped, or failed counter |
 | `GET` / `PUT` | `/api/content/screening` | Store screening preferences used by the content script |
-| `GET` / `POST` / `DELETE` | `/api/documents` | Upload, list, fetch, and delete local application documents |
+| `GET` / `POST` / `DELETE` | `/api/documents` | Upload, list, fetch, and delete user-owned application documents |
+| `POST` | `/api/users/google` | Verify Google and issue a HandShook session |
+| `GET` / `PUT` / `DELETE` | `/api/users/current` | Read/update the signed-in profile or sign out |
 | `POST` | `/api/cover-letter` | Generate a tailored cover letter from the stored resume and scraped job |
 | `POST` | `/api/cover-letter/pdf` | Render reviewed cover-letter text to PDF |
 | `POST` | `/api/other-docs/generate` | Draft employer-requested supplemental documents from stored materials |
@@ -115,13 +118,10 @@ Chrome extension origin.
 
 MongoDB is the source of truth for deployed state:
 
-- `settings`: run delay, max pages, stop-on-error behavior, and user-level
-  runtime preferences.
-- `screeningPrefs`: work authorization and relocation answers.
-- `documents`: resume, transcript, cover letter, GitHub project writeup, and
-  arbitrary supporting files with metadata plus stored content or GridFS
-  references.
-- `applicationRuns`: run lifecycle, source URL, aggregate counters, and error state.
+- `users`: verified Google profiles; OAuth tokens are never stored.
+- `screening_preferences`: user-owned screening and relocation answers.
+- `documents`: user-owned metadata and binary content for application files.
+- `application_runs`: user-owned run lifecycle and aggregate counters.
 
 The backend deliberately does not persist per-job outcomes. Handshake's applied
 state is used to detect whether a job was already submitted.
@@ -132,12 +132,12 @@ state is used to detect whether a job was already submitted.
 - The backend must be healthy before a run can start.
 - Each run has a visible Stop control and delay between attempts.
 - Jobs are skipped when they are already applied, external, unsupported,
-  ambiguous, incomplete, or missing required local documents.
+  ambiguous, incomplete, or missing required saved documents.
 - Handshake's own applied state is trusted instead of maintaining a second
   cross-run application ledger.
 - AI-generated documents are reviewed by the user before attachment/submission.
-- OpenAI calls happen in the backend, keeping the API key and local documents out
-  of the browser runtime.
+- OpenAI calls happen in the backend, keeping the API key and source-document
+  contents out of the browser runtime.
 
 ## AI Document Automation
 
@@ -202,6 +202,7 @@ Requires Java 21 and Maven.
 
 ```bash
 cd backend
+cp .env.example .env
 ./run.sh
 ```
 
@@ -217,8 +218,43 @@ Check health:
 curl -s http://127.0.0.1:8765/api/health
 ```
 
-AI document features require `OPENAI_API_KEY` in `backend/.env`. The rest of the
-backend still works when the key is unset.
+Local development requires a MongoDB connection through `MONGODB_URI`. AI
+document features additionally require `OPENAI_API_KEY`.
+
+### Google authentication
+
+HandShook uses Chrome's Identity API with a Google OAuth client of type **Chrome
+Extension**:
+
+1. Keep the extension ID stable. For production, upload an unpublished ZIP to
+   the Chrome Developer Dashboard, copy its public key, and set
+   `GOOGLE_EXTENSION_PUBLIC_KEY` in `frontend/.env`.
+2. In Google Cloud Console, configure the OAuth consent screen and create an
+   OAuth client with application type **Chrome Extension**. Enter the extension
+   ID as its Item ID.
+3. Copy `frontend/.env.example` to `frontend/.env` and set
+   `GOOGLE_OAUTH_CLIENT_ID`.
+4. Set the same `GOOGLE_OAUTH_CLIENT_ID` in `backend/.env`.
+5. Rebuild the extension and reload `frontend/dist/` in Chrome.
+
+The extension requests only OpenID, email, and basic profile scopes. OAuth access
+tokens remain in Chrome's token cache and are never stored in MongoDB. The backend
+checks that each token was issued for HandShook's configured client ID before
+accepting the profile, then issues a signed application session used to scope all
+MongoDB access to that user.
+
+### Deploy to AWS
+
+1. Create an Atlas cluster/database user and copy its Java driver connection
+   string into `backend/.env` as `MONGODB_URI`.
+2. Permit Lambda network access in Atlas. For an M0 development cluster this
+   usually means temporarily allowing `0.0.0.0/0` and using a strong password.
+3. Run `backend/deploy.sh`.
+4. Copy the printed API URL into `frontend/.env` as
+   `VITE_BACKEND_BASE_URL`, rebuild, and reload the extension.
+
+To migrate the existing local documents and run history, follow
+[`backend/backend.md`](backend/backend.md).
 
 ### Chrome Extension
 
@@ -251,4 +287,4 @@ cd backend && mvn test
   run telemetry, safe skip classifications, and user-controlled stop behavior.
 - Added server-side AI document generation with OpenAI Chat Completions, PDFBox
   text extraction, OpenPDF rendering, and browser-side PDF attachment workflows
-  while keeping API keys and user files local.
+  while keeping API keys and source-document processing server-side.

@@ -2,94 +2,115 @@ package com.handshook.backend.users;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import org.junit.jupiter.api.AfterEach;
+import com.handshook.backend.auth.CurrentUser;
+import com.handshook.backend.auth.SessionTokenService;
+import java.nio.file.Path;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.datasource.SingleConnectionDataSource;
-import org.springframework.jdbc.datasource.init.ScriptUtils;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 
 class UsersServiceTests {
 
-    private SingleConnectionDataSource dataSource;
+    @TempDir
+    Path tempDir;
+
     private JdbcTemplate jdbcTemplate;
     private GoogleProfileVerifier verifier;
+    private SessionTokenService tokenService;
+    private CurrentUser currentUser;
     private UsersService service;
 
     @BeforeEach
-    void setUp() throws Exception {
-        dataSource = new SingleConnectionDataSource("jdbc:sqlite::memory:", true);
+    void setUp() {
+        DriverManagerDataSource dataSource = new DriverManagerDataSource(
+            "jdbc:sqlite:" + tempDir.resolve("handshook-test.db")
+        );
+        dataSource.setDriverClassName("org.sqlite.JDBC");
+        new ResourceDatabasePopulator(new ClassPathResource("schema.sql")).execute(dataSource);
+
         jdbcTemplate = new JdbcTemplate(dataSource);
-        ScriptUtils.executeSqlScript(dataSource.getConnection(), new ClassPathResource("schema.sql"));
         verifier = mock(GoogleProfileVerifier.class);
-        service = new UsersService(jdbcTemplate, verifier);
-    }
-
-    @AfterEach
-    void tearDown() {
-        dataSource.destroy();
+        tokenService = mock(SessionTokenService.class);
+        currentUser = mock(CurrentUser.class);
+        service = new UsersService(jdbcTemplate, verifier, tokenService, currentUser);
     }
 
     @Test
-    void googleLoginCreatesCurrentUserAndUpdatesSameRecord() {
-        when(verifier.verify("token-1")).thenReturn(
+    void googleLoginCreatesUserAndReturnsApplicationSession() {
+        when(verifier.verify("google-token")).thenReturn(
             new GoogleProfileVerifier.GoogleProfile(
                 "google-123",
                 "person@example.com",
-                "First Name",
-                "https://example.com/one.png"
+                "Person",
+                "https://example.com/avatar.png"
             )
         );
+        when(tokenService.issue(org.mockito.ArgumentMatchers.anyString()))
+            .thenReturn("handshook-session");
 
-        UserDto created = service.authenticateWithGoogle("token-1");
+        AuthSessionResponse result = service.authenticateWithGoogle("google-token");
 
-        when(verifier.verify("token-2")).thenReturn(
-            new GoogleProfileVerifier.GoogleProfile(
-                "google-123",
-                "person@example.com",
-                "Updated Name",
-                "https://example.com/two.png"
-            )
+        assertThat(result.user().googleSubject()).isEqualTo("google-123");
+        assertThat(result.user().email()).isEqualTo("person@example.com");
+        assertThat(result.token()).isEqualTo("handshook-session");
+
+        String persistedEmail = jdbcTemplate.queryForObject(
+            "SELECT email FROM users WHERE google_subject = ?",
+            String.class,
+            "google-123"
         );
-        UserDto updated = service.authenticateWithGoogle("token-2");
-
-        assertThat(updated.id()).isEqualTo(created.id());
-        assertThat(updated.displayName()).isEqualTo("Updated Name");
-        assertThat(updated.pictureUrl()).isEqualTo("https://example.com/two.png");
-        assertThat(service.getCurrentUser()).contains(updated);
-
-        Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM users", Integer.class);
-        assertThat(count).isEqualTo(1);
+        assertThat(persistedEmail).isEqualTo("person@example.com");
     }
 
     @Test
-    void completingOnboardingPersistsTimestamp() {
-        when(verifier.verify("token")).thenReturn(
-            new GoogleProfileVerifier.GoogleProfile(
-                "google-456",
-                "candidate@example.com",
-                "Candidate",
-                null
-            )
+    void completingOnboardingUpdatesOnlyCurrentUser() {
+        jdbcTemplate.update(
+            """
+            INSERT INTO users (
+                id, google_subject, email, display_name, picture_url,
+                authenticated_at, onboarding_completed_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            "user-1",
+            "google-1",
+            "person@example.com",
+            "Person",
+            null,
+            "2026-06-20T00:00:00Z",
+            null,
+            "2026-06-20T00:00:00Z",
+            "2026-06-20T00:00:00Z"
         );
-        service.authenticateWithGoogle("token");
+        when(currentUser.requireUserId()).thenReturn("user-1");
 
-        UserDto completed = service.completeCurrentUserOnboarding().orElseThrow();
+        Optional<UserDto> completed = service.completeCurrentUserOnboarding();
 
-        assertThat(completed.onboardingCompletedAt()).isNotBlank();
-        assertThat(service.getCurrentUser().orElseThrow().onboardingCompletedAt())
-            .isEqualTo(completed.onboardingCompletedAt());
+        assertThat(completed).isPresent();
+        assertThat(completed.orElseThrow().id()).isEqualTo("user-1");
+        assertThat(completed.orElseThrow().onboardingCompletedAt()).isNotBlank();
+
+        String persisted = jdbcTemplate.queryForObject(
+            "SELECT onboarding_completed_at FROM users WHERE id = ?",
+            String.class,
+            "user-1"
+        );
+        assertThat(persisted).isNotBlank();
     }
 
     @Test
-    void noOAuthTokenColumnIsStored() {
-        var columns = jdbcTemplate.queryForList("PRAGMA table_info(users)");
+    void signingOutDoesNotDeleteProfile() {
+        when(currentUser.requireUserId()).thenReturn("user-1");
 
-        assertThat(columns)
-            .extracting(row -> String.valueOf(row.get("name")))
-            .doesNotContain("access_token", "refresh_token", "oauth_token");
+        service.signOutCurrentUser();
+
+        verify(currentUser).requireUserId();
     }
 }

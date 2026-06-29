@@ -13,10 +13,11 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
 /**
- * Generates a tailored cover letter by combining the user's stored resume with a
- * scraped job description and calling OpenAI's Chat Completions API (ChatGPT).
- * Generation runs server-side so the API key and resume never reach the
- * browser/extension.
+ * Generates a tailored cover letter from the resume text supplied by the
+ * extension (extracted from the user's locally stored resume) plus a scraped job
+ * description, by calling OpenAI's Chat Completions API (ChatGPT). The resume is
+ * never stored server-side — it arrives per request, and the OpenAI API key stays
+ * on the server.
  *
  * Uses Spring's RestClient against https://api.openai.com/v1 directly — no vendor
  * SDK. The stable writing instructions + resume go in the system message; the
@@ -33,13 +34,10 @@ public class CoverLetterService {
     private static final int MAX_TOKENS = 1200;
     private static final String OPENAI_BASE_URL = "https://api.openai.com/v1";
 
-    private final ResumeResolver resumeResolver;
     private final RestClient client; // null when no API key is configured
     private final boolean configured;
 
-    public CoverLetterService(ResumeResolver resumeResolver) {
-        this.resumeResolver = resumeResolver;
-
+    public CoverLetterService() {
         RestClient built = null;
         boolean ok = false;
         String key = System.getenv("OPENAI_API_KEY");
@@ -65,12 +63,12 @@ public class CoverLetterService {
                     + "environment and restart the companion service.");
         }
 
-        String resume = resumeResolver.resolve();
-        if (resume == null || resume.isBlank()) {
-            log.warn("COVER_LETTER_GENERATE blocked: no resume context on file");
+        String resume = request.resumeText() == null ? "" : request.resumeText().trim();
+        if (resume.isBlank()) {
+            log.warn("COVER_LETTER_GENERATE blocked: no resume text in request");
             throw new IllegalStateException(
-                "No resume on file. Upload a resume PDF on the Documents page (or paste your resume "
-                    + "text in the extension's Resume panel) before generating a cover letter.");
+                "No resume on file. Upload your resume on the Documents page in the extension "
+                    + "before generating a cover letter.");
         }
 
         String company = orUnknown(request.company(), "the company");

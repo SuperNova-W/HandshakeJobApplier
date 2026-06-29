@@ -1,5 +1,7 @@
 package com.handshook.backend.users;
 
+import com.handshook.backend.auth.CurrentUser;
+import com.handshook.backend.auth.SessionTokenService;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -7,55 +9,92 @@ import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class UsersService {
 
     private static final Logger log = LoggerFactory.getLogger(UsersService.class);
 
-    private static final String USER_COLUMNS =
-        "id, google_subject, email, display_name, picture_url, authenticated_at, "
-            + "onboarding_completed_at, created_at, updated_at";
+    private static final RowMapper<UserRecord> ROW_MAPPER = (rs, rowNum) -> new UserRecord(
+        rs.getString("id"),
+        rs.getString("google_subject"),
+        rs.getString("email"),
+        rs.getString("display_name"),
+        rs.getString("picture_url"),
+        rs.getString("authenticated_at"),
+        rs.getString("onboarding_completed_at"),
+        rs.getString("created_at"),
+        rs.getString("updated_at")
+    );
 
     private final JdbcTemplate jdbcTemplate;
     private final GoogleProfileVerifier googleProfileVerifier;
+    private final SessionTokenService sessionTokenService;
+    private final CurrentUser currentUser;
 
-    public UsersService(JdbcTemplate jdbcTemplate, GoogleProfileVerifier googleProfileVerifier) {
+    public UsersService(
+        JdbcTemplate jdbcTemplate,
+        GoogleProfileVerifier googleProfileVerifier,
+        SessionTokenService sessionTokenService,
+        CurrentUser currentUser
+    ) {
         this.jdbcTemplate = jdbcTemplate;
         this.googleProfileVerifier = googleProfileVerifier;
+        this.sessionTokenService = sessionTokenService;
+        this.currentUser = currentUser;
     }
 
-    @Transactional
-    public UserDto authenticateWithGoogle(String accessToken) {
+    public AuthSessionResponse authenticateWithGoogle(String accessToken) {
         GoogleProfileVerifier.GoogleProfile profile = googleProfileVerifier.verify(accessToken);
         String now = Instant.now().toString();
 
-        List<UserDto> existing = findByGoogleSubject(profile.subject());
-        String userId;
-        if (existing.isEmpty()) {
-            userId = UUID.randomUUID().toString();
-            jdbcTemplate.update(
-                """
-                INSERT INTO users (
-                    id, google_subject, email, display_name, picture_url,
-                    authenticated_at, onboarding_completed_at, created_at, updated_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)
-                """,
-                userId,
+        UserRecord existing = findByGoogleSubject(profile.subject()).orElse(null);
+
+        UserRecord saved;
+        if (existing == null) {
+            saved = new UserRecord(
+                UUID.randomUUID().toString(),
                 profile.subject(),
                 profile.email(),
                 profile.displayName(),
                 profile.pictureUrl(),
                 now,
+                null,
                 now,
                 now
             );
-            log.info("USER_CREATE id={} email={}", userId, profile.email());
+            jdbcTemplate.update(
+                """
+                INSERT INTO users (
+                    id, google_subject, email, display_name, picture_url,
+                    authenticated_at, onboarding_completed_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                saved.id(),
+                saved.googleSubject(),
+                saved.email(),
+                saved.displayName(),
+                saved.pictureUrl(),
+                saved.authenticatedAt(),
+                saved.onboardingCompletedAt(),
+                saved.createdAt(),
+                saved.updatedAt()
+            );
+            log.info("USER_CREATE id={} email={}", saved.id(), saved.email());
         } else {
-            userId = existing.get(0).id();
+            saved = new UserRecord(
+                existing.id(),
+                existing.googleSubject(),
+                profile.email(),
+                profile.displayName(),
+                profile.pictureUrl(),
+                now,
+                existing.onboardingCompletedAt(),
+                existing.createdAt(),
+                now
+            );
             jdbcTemplate.update(
                 """
                 UPDATE users
@@ -63,41 +102,26 @@ public class UsersService {
                     authenticated_at = ?, updated_at = ?
                 WHERE id = ?
                 """,
-                profile.email(),
-                profile.displayName(),
-                profile.pictureUrl(),
-                now,
-                now,
-                userId
+                saved.email(),
+                saved.displayName(),
+                saved.pictureUrl(),
+                saved.authenticatedAt(),
+                saved.updatedAt(),
+                saved.id()
             );
-            log.info("USER_LOGIN id={} email={}", userId, profile.email());
+            log.info("USER_LOGIN id={} email={}", saved.id(), saved.email());
         }
 
-        jdbcTemplate.update(
-            """
-            INSERT INTO current_user (id, user_id, updated_at)
-            VALUES (1, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET user_id = excluded.user_id, updated_at = excluded.updated_at
-            """,
-            userId,
-            now
-        );
-
-        return requireUser(userId);
+        return new AuthSessionResponse(saved.toDto(), sessionTokenService.issue(saved.id()));
     }
 
     public Optional<UserDto> getCurrentUser() {
-        List<UserDto> users = jdbcTemplate.query(
-            "SELECT " + prefixedUserColumns("u") + " FROM current_user c "
-                + "JOIN users u ON u.id = c.user_id WHERE c.id = 1",
-            UsersService::mapUser
-        );
-        return users.stream().findFirst();
+        return findUser(currentUser.requireUserId()).map(UserRecord::toDto);
     }
 
-    @Transactional
     public Optional<UserDto> completeCurrentUserOnboarding() {
-        Optional<UserDto> current = getCurrentUser();
+        String userId = currentUser.requireUserId();
+        Optional<UserRecord> current = findUser(userId);
         if (current.isEmpty()) {
             return Optional.empty();
         }
@@ -107,46 +131,29 @@ public class UsersService {
             "UPDATE users SET onboarding_completed_at = ?, updated_at = ? WHERE id = ?",
             now,
             now,
-            current.get().id()
+            userId
         );
-        log.info("USER_ONBOARDING_COMPLETE id={} email={}", current.get().id(), current.get().email());
-        return Optional.of(requireUser(current.get().id()));
+        UserRecord saved = findUser(userId).orElseThrow();
+        log.info("USER_ONBOARDING_COMPLETE id={} email={}", saved.id(), saved.email());
+        return Optional.of(saved.toDto());
     }
 
-    private List<UserDto> findByGoogleSubject(String googleSubject) {
-        return jdbcTemplate.query(
-            "SELECT " + USER_COLUMNS + " FROM users WHERE google_subject = ?",
-            UsersService::mapUser,
+    public void signOutCurrentUser() {
+        log.info("USER_LOGOUT id={}", currentUser.requireUserId());
+    }
+
+    private Optional<UserRecord> findByGoogleSubject(String googleSubject) {
+        List<UserRecord> rows = jdbcTemplate.query(
+            "SELECT * FROM users WHERE google_subject = ?",
+            ROW_MAPPER,
             googleSubject
         );
+        return rows.stream().findFirst();
     }
 
-    private UserDto requireUser(String id) {
-        return jdbcTemplate.queryForObject(
-            "SELECT " + USER_COLUMNS + " FROM users WHERE id = ?",
-            UsersService::mapUser,
-            id
-        );
-    }
-
-    private static UserDto mapUser(java.sql.ResultSet rs, int rowNum) throws java.sql.SQLException {
-        return new UserDto(
-            rs.getString("id"),
-            rs.getString("google_subject"),
-            rs.getString("email"),
-            rs.getString("display_name"),
-            rs.getString("picture_url"),
-            rs.getString("authenticated_at"),
-            rs.getString("onboarding_completed_at"),
-            rs.getString("created_at"),
-            rs.getString("updated_at")
-        );
-    }
-
-    private static String prefixedUserColumns(String alias) {
-        return alias + ".id, " + alias + ".google_subject, " + alias + ".email, "
-            + alias + ".display_name, " + alias + ".picture_url, "
-            + alias + ".authenticated_at, " + alias + ".onboarding_completed_at, "
-            + alias + ".created_at, " + alias + ".updated_at";
+    private Optional<UserRecord> findUser(String id) {
+        List<UserRecord> rows =
+            jdbcTemplate.query("SELECT * FROM users WHERE id = ?", ROW_MAPPER, id);
+        return rows.stream().findFirst();
     }
 }

@@ -15,6 +15,7 @@ backend/data/*.sqlite3
 config.json
 .env
 .env.local
+backend/.auth-token-secret
 
 # Logs & Output
 logs/

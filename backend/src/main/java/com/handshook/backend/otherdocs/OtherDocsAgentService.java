@@ -2,8 +2,8 @@ package com.handshook.backend.otherdocs;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.handshook.backend.otherdocs.UserDocsContext.Source;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -15,14 +15,16 @@ import org.springframework.web.client.RestClientResponseException;
 
 /**
  * A retrieval-augmented agent that drafts the extra document an employer asks for
- * ("other required documents") when the auto-apply bot can't auto-fill it. It
- * retrieves the user's stored materials — resume, GitHub project writeup, and any
- * uploaded OTHER documents (via {@link UserDocsContext}) — and asks OpenAI to
- * produce the requested document grounded in those materials plus the job context.
+ * ("other required documents") when the auto-apply bot can't auto-fill it. The
+ * extension supplies the user's materials — resume, GitHub project writeup, and any
+ * other documents it extracted from local storage — as request sources, and the
+ * agent asks OpenAI to produce the requested document grounded in those sources
+ * plus the job context.
  *
- * Mirrors {@code CoverLetterService}: generation runs server-side so the API key
- * and the user's documents never reach the browser, and it calls OpenAI's Chat
- * Completions API directly via Spring's RestClient (no vendor SDK).
+ * Mirrors {@code CoverLetterService}: generation runs server-side so the OpenAI API
+ * key stays on the server and the user's documents are never persisted there; it
+ * calls OpenAI's Chat Completions API directly via Spring's RestClient (no vendor
+ * SDK).
  */
 @Service
 public class OtherDocsAgentService {
@@ -33,13 +35,12 @@ public class OtherDocsAgentService {
     private static final int MAX_TOKENS = 1500;
     private static final String OPENAI_BASE_URL = "https://api.openai.com/v1";
 
-    private final UserDocsContext userDocsContext;
+    private static final int PER_SOURCE_CHAR_CAP = 6000;
+
     private final RestClient client; // null when no API key is configured
     private final boolean configured;
 
-    public OtherDocsAgentService(UserDocsContext userDocsContext) {
-        this.userDocsContext = userDocsContext;
-
+    public OtherDocsAgentService() {
         RestClient built = null;
         boolean ok = false;
         String key = System.getenv("OPENAI_API_KEY");
@@ -65,12 +66,12 @@ public class OtherDocsAgentService {
                     + "environment and restart the companion service.");
         }
 
-        List<Source> sources = userDocsContext.gather();
+        List<DocSource> sources = sanitizeSources(request.sources());
         if (sources.isEmpty()) {
-            log.warn("OTHER_DOCS_GENERATE blocked: no source documents on file");
+            log.warn("OTHER_DOCS_GENERATE blocked: no source documents in request");
             throw new IllegalStateException(
-                "No documents on file to draft from. Upload your resume, GitHub project, or other "
-                    + "documents on the Documents page before using the agent.");
+                "No documents to draft from. Upload your resume, GitHub project, or other "
+                    + "documents on the Documents page in the extension before using the agent.");
         }
 
         String company = orUnknown(request.company(), "the company");
@@ -93,7 +94,7 @@ public class OtherDocsAgentService {
             role,
             company,
             sources.size(),
-            sources.stream().map(Source::label).toList(),
+            sources.stream().map(DocSource::label).toList(),
             instructionChars,
             jdChars,
             MODEL,
@@ -124,7 +125,7 @@ public class OtherDocsAgentService {
         log.info("OTHER_DOCS_GENERATE complete role='{}' company='{}' chars={} usage={}",
             role, company, document.length(), response == null ? null : response.path("usage"));
         return new OtherDocsResponse(
-            document, MODEL, Instant.now().toString(), sources.stream().map(Source::label).toList());
+            document, MODEL, Instant.now().toString(), sources.stream().map(DocSource::label).toList());
     }
 
     private static String extractContent(JsonNode response) {
@@ -152,9 +153,35 @@ public class OtherDocsAgentService {
         return (value == null || value.isBlank()) ? fallback : value.trim();
     }
 
-    private static String buildSystemPrompt(List<Source> sources) {
+    /**
+     * Cleans the request-supplied sources: drops empty ones, trims, applies a
+     * default label, and caps each so a long document can't blow past the model's
+     * context window.
+     */
+    private static List<DocSource> sanitizeSources(List<DocSource> raw) {
+        List<DocSource> cleaned = new ArrayList<>();
+        if (raw == null) {
+            return cleaned;
+        }
+        for (DocSource source : raw) {
+            if (source == null || source.text() == null || source.text().isBlank()) {
+                continue;
+            }
+            String label = (source.label() == null || source.label().isBlank())
+                ? "Document"
+                : source.label().trim();
+            String text = source.text().trim();
+            if (text.length() > PER_SOURCE_CHAR_CAP) {
+                text = text.substring(0, PER_SOURCE_CHAR_CAP) + "\n[...truncated...]";
+            }
+            cleaned.add(new DocSource(label, text));
+        }
+        return cleaned;
+    }
+
+    private static String buildSystemPrompt(List<DocSource> sources) {
         StringBuilder kb = new StringBuilder();
-        for (Source s : sources) {
+        for (DocSource s : sources) {
             kb.append("<document name=\"").append(s.label()).append("\">\n")
                 .append(s.text()).append("\n</document>\n\n");
         }

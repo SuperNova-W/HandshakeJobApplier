@@ -1,5 +1,6 @@
 package com.handshook.backend.config;
 
+import com.handshook.backend.auth.ApiAuthenticationException;
 import java.util.HashMap;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -36,6 +37,14 @@ public class GlobalExceptionHandler {
         body.put("error", "Validation failed");
         body.put("fields", fields);
         return ResponseEntity.badRequest().body(body);
+    }
+
+    @ExceptionHandler(ApiAuthenticationException.class)
+    public ResponseEntity<Map<String, Object>> handleAuthentication(ApiAuthenticationException ex) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+            "error", "Authentication required",
+            "message", ex.getMessage()
+        ));
     }
 
     @ExceptionHandler(Exception.class)

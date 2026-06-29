@@ -125,7 +125,7 @@ function App() {
       setUiMessage(
         response.state.backendHealth === "online"
           ? "Backend online. Extension control plane is ready."
-          : "Local backend unavailable. Start the companion service on 127.0.0.1:8765 and retry."
+          : "HandShook's backend is unavailable. Try again in a moment."
       );
     }
   }

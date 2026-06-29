@@ -3,7 +3,6 @@ import {
   coverLetterPdfBase64,
   completeCurrentUserOnboarding,
   createRun,
-  documentBase64ByType,
   finalizeRun,
   generateCoverLetter as apiGenerateCoverLetter,
   generateOtherDoc as apiGenerateOtherDoc,
@@ -12,16 +11,25 @@ import {
   getScreeningPrefs,
   getSettings,
   otherDocPdfBase64,
-  recordRunOutcome
+  recordRunOutcome,
+  signOutCurrentUser
 } from "../shared/backendApi";
 import {
   createInitialRuntimeState,
   DEFAULT_SCREENING,
   DEFAULT_SETTINGS,
+  GOOGLE_OAUTH_CLIENT_ID,
+  GOOGLE_OAUTH_SCOPES,
   normalizeScreeningPrefs
 } from "../shared/constants";
+import {
+  getKnowledgeBaseSources,
+  getResumeText,
+  getStoredDocumentByType
+} from "../shared/localDocuments";
 import { inferPageSupport } from "../shared/handshake";
 import {
+  clearOnboardingUser,
   markOnboardingComplete,
   markOnboardingIncomplete,
   onboardingPageUrl,
@@ -111,42 +119,67 @@ function resetRunCounters() {
   runtimeState.failedCount = 0;
 }
 
-function getGoogleAuthToken(): Promise<string> {
+// Google disabled the legacy getAuthToken / "Chrome App" OAuth flow (the Oct-2023
+// custom-URI-scheme restriction), so sign-in uses launchWebAuthFlow against a
+// Web-application OAuth client. The implicit flow returns the access token in the
+// redirect URL fragment; that access token is what the backend verifies.
+function getGoogleAuthToken(interactive: boolean): Promise<string> {
   return new Promise((resolve, reject) => {
-    if (!chrome.identity?.getAuthToken) {
+    if (!chrome.identity?.launchWebAuthFlow) {
       reject(new Error("Chrome Identity is unavailable in this browser context."));
       return;
     }
+    if (!GOOGLE_OAUTH_CLIENT_ID) {
+      reject(
+        new Error(
+          "Google sign-in is not configured. Set VITE_GOOGLE_OAUTH_CLIENT_ID in frontend/.env and rebuild."
+        )
+      );
+      return;
+    }
 
-    chrome.identity.getAuthToken({ interactive: true }, (result) => {
+    const redirectUri = chrome.identity.getRedirectURL();
+    const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+    authUrl.searchParams.set("client_id", GOOGLE_OAUTH_CLIENT_ID);
+    authUrl.searchParams.set("response_type", "token");
+    authUrl.searchParams.set("redirect_uri", redirectUri);
+    authUrl.searchParams.set("scope", GOOGLE_OAUTH_SCOPES.join(" "));
+    // Always show the account chooser so both first sign-in and switching accounts work.
+    authUrl.searchParams.set("prompt", "select_account");
+
+    chrome.identity.launchWebAuthFlow({ url: authUrl.toString(), interactive }, (responseUrl) => {
       const lastError = chrome.runtime.lastError;
-      if (lastError) {
-        reject(new Error(lastError.message));
+      if (lastError || !responseUrl) {
+        reject(new Error(lastError?.message || "Google sign-in was cancelled."));
         return;
       }
-
-      if (typeof result === "string" && result) {
-        resolve(result);
+      const params = new URLSearchParams(new URL(responseUrl).hash.replace(/^#/, ""));
+      const error = params.get("error");
+      if (error) {
+        reject(new Error(`Google sign-in failed: ${error}`));
         return;
       }
-
-      if (result && typeof result === "object" && "token" in result) {
-        const token = (result as { token?: string }).token;
-        if (token) {
-          resolve(token);
-          return;
-        }
+      const token = params.get("access_token");
+      if (!token) {
+        reject(new Error("Google did not return an access token."));
+        return;
       }
-
-      reject(new Error("Google did not return an auth token."));
+      resolve(token);
     });
   });
 }
 
-async function loginWithGoogle(): Promise<ExtensionResponse> {
-  const token = await getGoogleAuthToken();
-  const storedUser = await authenticateGoogleUser(token);
-  const user: GoogleUserProfile = {
+async function clearGoogleAuthState(): Promise<void> {
+  if (chrome.identity?.clearAllCachedAuthTokens) {
+    await chrome.identity.clearAllCachedAuthTokens();
+  }
+  await clearOnboardingUser();
+}
+
+function toGoogleUser(
+  storedUser: Awaited<ReturnType<typeof authenticateGoogleUser>>["user"]
+): GoogleUserProfile {
+  return {
     backendUserId: storedUser.id,
     id: storedUser.googleSubject,
     email: storedUser.email,
@@ -154,8 +187,28 @@ async function loginWithGoogle(): Promise<ExtensionResponse> {
     picture: storedUser.pictureUrl,
     authenticatedAt: storedUser.authenticatedAt
   };
-  await saveOnboardingUser(user);
+}
+
+async function loginWithGoogle(): Promise<ExtensionResponse> {
+  // launchWebAuthFlow mints a fresh access token each time (no chrome.identity
+  // token cache to invalidate), so there's no stale-token retry to do here.
+  const token = await getGoogleAuthToken(true);
+  const authSession = await authenticateGoogleUser(token);
+  const user = toGoogleUser(authSession.user);
+  await saveOnboardingUser(user, authSession.token);
   return { ok: true, user };
+}
+
+async function switchGoogleAccount(): Promise<ExtensionResponse> {
+  await signOutCurrentUser().catch(() => undefined);
+  await clearGoogleAuthState();
+  return loginWithGoogle();
+}
+
+async function logoutGoogleUser(): Promise<ExtensionResponse> {
+  await signOutCurrentUser().catch(() => undefined);
+  await clearGoogleAuthState();
+  return { ok: true, signedOut: true };
 }
 
 async function completeOnboarding(): Promise<ExtensionResponse> {
@@ -221,7 +274,7 @@ async function startRun(): Promise<ExtensionResponse> {
   if (runtimeState.backendHealth !== "online") {
     return {
       ok: false,
-      error: "Local backend unavailable. Start the companion service on 127.0.0.1:8765 and retry."
+      error: "HandShook's backend is unavailable. Try again in a moment."
     };
   }
 
@@ -367,7 +420,8 @@ async function generateCoverLetter(): Promise<ExtensionResponse> {
     descriptionChars: scraped.job.jobDescription.length
   });
 
-  const result = await apiGenerateCoverLetter(scraped.job);
+  const resumeText = await getResumeText();
+  const result = await apiGenerateCoverLetter(scraped.job, resumeText);
   log("generateCoverLetter: generated", { model: result.model, chars: result.coverLetter.length });
   return { ok: true, coverLetter: result };
 }
@@ -419,7 +473,8 @@ async function attachCoverLetter(coverLetter: string): Promise<ExtensionResponse
 // the JobContext rather than us re-reading the active tab like the popup flow.
 async function generateCoverLetterText(job: JobContext): Promise<ExtensionResponse> {
   try {
-    const result = await apiGenerateCoverLetter(job);
+    const resumeText = await getResumeText();
+    const result = await apiGenerateCoverLetter(job, resumeText);
     log("generateCoverLetterText: generated", { model: result.model, chars: result.coverLetter.length });
     return { ok: true, coverLetter: result };
   } catch (err) {
@@ -456,11 +511,13 @@ async function renderCoverLetterPdf(
 // (plus the sources it drew on) for the content script's review overlay.
 async function generateOtherDoc(job: JobContext, instructions: string): Promise<ExtensionResponse> {
   try {
+    const sources = await getKnowledgeBaseSources();
     const result = await apiGenerateOtherDoc({
       jobTitle: job.jobTitle,
       company: job.company,
       jobDescription: job.jobDescription,
-      instructions
+      instructions,
+      sources
     });
     log("generateOtherDoc: drafted", {
       model: result.model,
@@ -503,7 +560,7 @@ async function renderOtherDocPdf(
 // base64, and it rebuilds the File to drop into the upload field.
 async function getDocument(docType: DocumentType): Promise<ExtensionResponse> {
   try {
-    const document = await documentBase64ByType(docType);
+    const document = await getStoredDocumentByType(docType);
     return { ok: true, document };
   } catch (err) {
     return {
@@ -640,6 +697,14 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendRes
 
         case "runtime/google-login":
           respond(sendResponse, await loginWithGoogle());
+          return;
+
+        case "runtime/google-switch-account":
+          respond(sendResponse, await switchGoogleAccount());
+          return;
+
+        case "runtime/google-logout":
+          respond(sendResponse, await logoutGoogleUser());
           return;
 
         case "runtime/complete-onboarding":
