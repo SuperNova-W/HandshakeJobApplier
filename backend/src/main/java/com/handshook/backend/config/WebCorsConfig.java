@@ -11,13 +11,16 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 public class WebCorsConfig implements WebMvcConfigurer {
 
     private final SessionAuthenticationInterceptor authenticationInterceptor;
+    private final AiRateLimitInterceptor aiRateLimitInterceptor;
     private final String allowedOrigin;
 
     public WebCorsConfig(
         SessionAuthenticationInterceptor authenticationInterceptor,
+        AiRateLimitInterceptor aiRateLimitInterceptor,
         @Value("${app.cors.allowed-origin:chrome-extension://*}") String allowedOrigin
     ) {
         this.authenticationInterceptor = authenticationInterceptor;
+        this.aiRateLimitInterceptor = aiRateLimitInterceptor;
         this.allowedOrigin = allowedOrigin;
     }
 
@@ -34,5 +37,8 @@ public class WebCorsConfig implements WebMvcConfigurer {
         registry.addInterceptor(authenticationInterceptor)
             .addPathPatterns("/api/**")
             .excludePathPatterns("/api/health", "/api/users/google");
+        // Runs after authentication, so CurrentUser is set.
+        registry.addInterceptor(aiRateLimitInterceptor)
+            .addPathPatterns("/api/cover-letter/**", "/api/cover-letter", "/api/other-docs/**");
     }
 }

@@ -2,16 +2,9 @@ import { BACKEND_BASE_URL } from "./constants";
 import type {
   BackendAuthSession,
   BackendHealth,
-  BackendUser,
   CoverLetterResult,
-  CreateRunResponse,
   JobContext,
-  ApplicationStatus,
-  OtherDocsResult,
-  RunStatus,
-  RunSummary,
-  ScreeningPrefs,
-  Settings
+  OtherDocsResult
 } from "./contracts";
 import { readSessionToken } from "./onboarding";
 
@@ -68,70 +61,14 @@ export function getBackendHealth() {
   return requestJson<BackendHealth>("/api/health");
 }
 
-export function getSettings() {
-  return requestJson<Settings>("/api/settings");
-}
-
-export function getRecentRuns(limit = 5) {
-  return requestJson<RunSummary[]>(`/api/runs?limit=${limit}`);
-}
-
-export function createRun(sourceUrl: string, startedAt: string) {
-  return requestJson<CreateRunResponse>("/api/runs", {
-    method: "POST",
-    body: JSON.stringify({ sourceUrl, startedAt })
-  });
-}
-
-export function finalizeRun(
-  runId: string,
-  status: Exclude<RunStatus, "RUNNING">,
-  errorMessage: string | null
-) {
-  return requestJson<RunSummary>(`/api/runs/${runId}`, {
-    method: "PATCH",
-    body: JSON.stringify({ status, endedAt: new Date().toISOString(), errorMessage })
-  });
-}
-
-export function recordRunOutcome(runId: string, status: ApplicationStatus) {
-  return requestJson<void>(`/api/runs/${runId}/outcomes`, {
-    method: "POST",
-    body: JSON.stringify({ status })
-  });
-}
-
-export function getScreeningPrefs() {
-  return requestJson<ScreeningPrefs>("/api/content/screening");
-}
-
-export function saveScreeningPrefs(prefs: ScreeningPrefs) {
-  return requestJson<ScreeningPrefs>("/api/content/screening", {
-    method: "PUT",
-    body: JSON.stringify(prefs)
-  });
-}
-
+// Screening prefs, run history, settings, and the user profile are stored in
+// chrome.storage.local (see localData.ts) — the backend keeps no user data.
+// Sign-in is the one non-AI call left: it verifies the Google token and returns
+// the profile plus a signed HandShook session token.
 export function authenticateGoogleUser(accessToken: string) {
   return requestJson<BackendAuthSession>("/api/users/google", {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` }
-  });
-}
-
-export function getCurrentUser() {
-  return requestJson<BackendUser>("/api/users/current");
-}
-
-export function completeCurrentUserOnboarding() {
-  return requestJson<BackendUser>("/api/users/current/onboarding", {
-    method: "PUT"
-  });
-}
-
-export function signOutCurrentUser() {
-  return requestJson<void>("/api/users/current", {
-    method: "DELETE"
   });
 }
 

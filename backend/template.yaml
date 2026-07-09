@@ -1,0 +1,81 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  HandShook stateless AI backend: Google sign-in verification, cover-letter and
+  other-docs generation, and PDF rendering. Stores no user data — profile,
+  screening preferences, and run history live in the extension's
+  chrome.storage.local.
+
+Parameters:
+  GoogleOauthClientId:
+    Type: String
+    Description: Web-application OAuth client ID (token audience check); must match the extension build.
+  AuthTokenSecret:
+    Type: String
+    NoEcho: true
+    Description: >
+      HMAC key for HandShook session tokens, 32+ random characters. REQUIRED in
+      Lambda: containers that don't share it reject each other's sessions.
+  OpenAiApiKey:
+    Type: String
+    NoEcho: true
+  AllowedExtensionOrigin:
+    Type: String
+    Default: chrome-extension://eacnhbojhiplfeaddmnfmhihkabajodb
+    Description: CORS origin; the published extension's stable ID.
+  AiHourlyLimit:
+    Type: String
+    Default: "30"
+    Description: Per-user hourly cap on the OpenAI-backed endpoints.
+
+Resources:
+  Api:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      # Coarse global throttle in front of the app's per-user AI limiter.
+      MethodSettings:
+        - ResourcePath: "/*"
+          HttpMethod: "*"
+          ThrottlingRateLimit: 10
+          ThrottlingBurstLimit: 25
+
+  Backend:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: handshook-backend
+      CodeUri: target/backend-0.1.0-lambda.zip
+      Handler: com.amazonaws.serverless.proxy.spring.SpringDelegatingLambdaContainerHandler
+      Runtime: java21
+      MemorySize: 1024
+      # API Gateway caps integrations at 29s, so a longer function timeout only
+      # burns money after the client has already given up.
+      Timeout: 29
+      AutoPublishAlias: live
+      # SnapStart restores a warmed snapshot instead of cold-booting Spring
+      # (free for Java runtimes).
+      SnapStart:
+        ApplyOn: PublishedVersions
+      Environment:
+        Variables:
+          MAIN_CLASS: com.handshook.backend.HandShookBackendApplication
+          GOOGLE_OAUTH_CLIENT_ID: !Ref GoogleOauthClientId
+          AUTH_TOKEN_SECRET: !Ref AuthTokenSecret
+          OPENAI_API_KEY: !Ref OpenAiApiKey
+          ALLOWED_EXTENSION_ORIGIN: !Ref AllowedExtensionOrigin
+          AI_HOURLY_LIMIT: !Ref AiHourlyLimit
+      Events:
+        Proxy:
+          Type: Api
+          Properties:
+            RestApiId: !Ref Api
+            Path: /{proxy+}
+            Method: ANY
+
+Outputs:
+  ApiUrl:
+    Description: >
+      Backend base URL. Put it in frontend/.env as VITE_BACKEND_BASE_URL, then
+      rebuild the extension (npm run build) so the bundle and manifest
+      host_permissions point at it.
+    Value: !Sub https://${Api}.execute-api.${AWS::Region}.amazonaws.com/Prod

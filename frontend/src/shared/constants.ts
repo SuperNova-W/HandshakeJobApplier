@@ -48,7 +48,6 @@ export function createInitialRuntimeState(): RuntimeState {
   return {
     backendHealth: "unknown",
     backendVersion: null,
-    backendDatabase: null,
     runStatus: "IDLE",
     runId: null,
     tabId: null,

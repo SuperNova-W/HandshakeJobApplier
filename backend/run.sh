@@ -29,8 +29,6 @@ if [[ -z "${GOOGLE_OAUTH_CLIENT_ID:-}" ]]; then
   echo "    Add the same Chrome Extension OAuth client ID to backend/.env and frontend/.env.local." >&2
 fi
 
-echo "ℹ️  Using SQLite at ${HANDSHOOK_DB_PATH:-data/handshook.db} (created on first run)." >&2
-
 if [[ -z "${AUTH_TOKEN_SECRET:-}" ]]; then
   echo "⚠️  AUTH_TOKEN_SECRET is empty — local sessions will reset on every restart." >&2
 fi

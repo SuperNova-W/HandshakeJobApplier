@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Lambda deployment zip: compiled classes at the root, dependencies in lib/
+     (the Java runtime adds lib/*.jar to the classpath). Embedded Tomcat is
+     excluded because aws-serverless-java-container supplies the servlet
+     runtime inside Lambda. -->
+<assembly xmlns="http://maven.apache.org/ASSEMBLY/2.2.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/ASSEMBLY/2.2.0 https://maven.apache.org/xsd/assembly-2.2.0.xsd">
+  <id>lambda</id>
+  <formats>
+    <format>zip</format>
+  </formats>
+  <includeBaseDirectory>false</includeBaseDirectory>
+  <fileSets>
+    <fileSet>
+      <directory>${project.build.outputDirectory}</directory>
+      <outputDirectory>/</outputDirectory>
+    </fileSet>
+  </fileSets>
+  <dependencySets>
+    <dependencySet>
+      <outputDirectory>/lib</outputDirectory>
+      <useProjectArtifact>false</useProjectArtifact>
+      <excludes>
+        <exclude>org.apache.tomcat.embed:*</exclude>
+        <exclude>org.springframework.boot:spring-boot-starter-tomcat</exclude>
+      </excludes>
+    </dependencySet>
+  </dependencySets>
+</assembly>

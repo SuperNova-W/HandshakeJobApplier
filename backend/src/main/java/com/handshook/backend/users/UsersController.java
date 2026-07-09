@@ -4,10 +4,7 @@ import java.util.Map;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
-import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -27,26 +24,6 @@ public class UsersController {
         @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization
     ) {
         return usersService.authenticateWithGoogle(bearerToken(authorization));
-    }
-
-    @GetMapping("/current")
-    public ResponseEntity<UserDto> currentUser() {
-        return usersService.getCurrentUser()
-            .map(ResponseEntity::ok)
-            .orElseGet(() -> ResponseEntity.notFound().build());
-    }
-
-    @PutMapping("/current/onboarding")
-    public ResponseEntity<UserDto> completeOnboarding() {
-        return usersService.completeCurrentUserOnboarding()
-            .map(ResponseEntity::ok)
-            .orElseGet(() -> ResponseEntity.notFound().build());
-    }
-
-    @DeleteMapping("/current")
-    public ResponseEntity<Void> signOutCurrentUser() {
-        usersService.signOutCurrentUser();
-        return ResponseEntity.noContent().build();
     }
 
     @ExceptionHandler(UserAuthenticationException.class)

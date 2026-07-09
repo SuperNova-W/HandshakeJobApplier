@@ -6,8 +6,5 @@ public record UserDto(
     String email,
     String displayName,
     String pictureUrl,
-    String authenticatedAt,
-    String onboardingCompletedAt,
-    String createdAt,
-    String updatedAt
+    String authenticatedAt
 ) {}

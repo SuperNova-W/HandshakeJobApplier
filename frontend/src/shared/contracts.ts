@@ -38,7 +38,6 @@ export type SkipReason =
 export interface BackendHealth {
   status: "UP" | "DOWN";
   version: string;
-  database: "CONNECTED" | "UNAVAILABLE" | string;
 }
 
 export interface Settings {
@@ -78,7 +77,6 @@ export interface JobResult {
 export interface RuntimeState {
   backendHealth: BackendHealthStatus;
   backendVersion: string | null;
-  backendDatabase: string | null;
   runStatus: PopupRunStatus;
   runId: string | null;
   tabId: number | null;
@@ -181,6 +179,8 @@ export interface GoogleUserProfile {
   authenticatedAt: string;
 }
 
+// The verified Google profile returned by sign-in. Stateless backend: `id` IS
+// the Google subject; nothing is stored server-side.
 export interface BackendUser {
   id: string;
   googleSubject: string;
@@ -188,9 +188,6 @@ export interface BackendUser {
   displayName: string | null;
   pictureUrl: string | null;
   authenticatedAt: string;
-  onboardingCompletedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
 }
 
 export interface BackendAuthSession {

@@ -27,19 +27,6 @@
       <artifactId>spring-boot-starter-web</artifactId>
     </dependency>
 
-    <!-- Persistence is a local SQLite file accessed through Spring's JdbcTemplate. -->
-    <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-jdbc</artifactId>
-    </dependency>
-
-    <dependency>
-      <groupId>org.xerial</groupId>
-      <artifactId>sqlite-jdbc</artifactId>
-      <version>3.47.2.0</version>
-      <scope>runtime</scope>
-    </dependency>
-
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-validation</artifactId>
@@ -77,4 +64,49 @@
       </plugin>
     </plugins>
   </build>
+
+  <profiles>
+    <!-- `mvn -Plambda clean package` builds the AWS Lambda artifact: a zip of
+         target/classes plus lib/*.jar (Lambda puts lib/ jars on the classpath),
+         handled by the library's SpringDelegatingLambdaContainerHandler (no
+         handler code in this repo; template.yaml sets MAIN_CLASS). The default
+         build is untouched, so run.sh keeps producing the normal local jar. -->
+    <profile>
+      <id>lambda</id>
+      <properties>
+        <!-- The Lambda zip replaces Spring Boot's repackaged fat jar. -->
+        <spring-boot.repackage.skip>true</spring-boot.repackage.skip>
+      </properties>
+      <dependencies>
+        <dependency>
+          <groupId>com.amazonaws.serverless</groupId>
+          <artifactId>aws-serverless-java-container-springboot3</artifactId>
+          <version>2.1.5</version>
+        </dependency>
+      </dependencies>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-assembly-plugin</artifactId>
+            <version>3.7.1</version>
+            <executions>
+              <execution>
+                <id>lambda-zip</id>
+                <phase>package</phase>
+                <goals>
+                  <goal>single</goal>
+                </goals>
+                <configuration>
+                  <descriptors>
+                    <descriptor>src/assembly/lambda.xml</descriptor>
+                  </descriptors>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>

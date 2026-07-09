@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>HandShook — Privacy Policy</title>
+<meta name="description" content="HandShook's privacy policy: your documents and history stay in your browser; the backend stores nothing." />
+<link rel="icon" type="image/png" sizes="32x32" href="brand/icon32.png" />
+<link rel="icon" type="image/png" sizes="16x16" href="brand/icon16.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Sofia+Sans:ital,wght@0,300..700;1,400..500&display=swap" rel="stylesheet" />
+<style>
+:root{
+  --ink:#141413; --graphite:#565656; --canvas:#f3f0ee; --card:#ffffff;
+  --signal:#cf4500; --link:#3860be; --hairline:rgba(20,20,19,.12);
+  --r-sm:12px; --r-lg:40px;
+  --ui:"Sofia Sans","SofiaSans",ui-sans-serif,system-ui,-apple-system,Arial,sans-serif;
+  --shadow-card:0 24px 48px rgba(20,20,19,.08);
+}
+*{box-sizing:border-box;}
+body{
+  margin:0; background:var(--canvas); color:var(--ink);
+  font-family:var(--ui); font-size:17px; font-weight:450; line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:var(--link);}
+main{max-width:760px; margin:0 auto; padding:48px 24px 96px;}
+header.site{max-width:760px; margin:0 auto; padding:28px 24px 0; display:flex; align-items:center; gap:12px;}
+header.site img{width:32px; height:32px;}
+header.site .name{font-weight:600; font-size:18px; letter-spacing:-.01em;}
+h1{font-weight:600; font-size:clamp(32px,6vw,48px); line-height:1.05; letter-spacing:-.02em; margin:32px 0 8px;}
+.updated{color:var(--graphite); font-size:15px; margin-bottom:36px;}
+h2{font-weight:600; font-size:24px; letter-spacing:-.01em; margin:44px 0 12px;}
+p, li{color:var(--ink);}
+ul{padding-left:22px;}
+.tldr{
+  background:var(--card); border:1px solid var(--hairline); border-radius:var(--r-lg);
+  box-shadow:var(--shadow-card); padding:28px 30px; margin:36px 0;
+}
+.tldr strong{display:block; font-size:14px; text-transform:uppercase; letter-spacing:.08em; color:var(--signal); margin-bottom:10px;}
+.tldr ul{margin:0;}
+table{width:100%; border-collapse:collapse; font-size:16px; margin:16px 0;}
+th, td{text-align:left; padding:10px 12px; border-bottom:1px solid var(--hairline); vertical-align:top;}
+th{font-weight:600;}
+footer{max-width:760px; margin:0 auto; padding:0 24px 48px; color:var(--graphite); font-size:15px;}
+</style>
+</head>
+<body>
+<header class="site">
+  <img src="brand/icon32.png" alt="" />
+  <span class="name">HandShook</span>
+</header>
+<main>
+  <h1>Privacy Policy</h1>
+  <p class="updated">Last updated: July 4, 2026</p>
+
+  <div class="tldr">
+    <strong>The short version</strong>
+    <ul>
+      <li>Your resume, documents, preferences, and application history live <em>in your browser</em>, not on our servers.</li>
+      <li>Our backend stores no user data — it has no database.</li>
+      <li>HandShook never sees, asks for, or stores your Handshake password.</li>
+      <li>Uninstalling the extension deletes everything.</li>
+    </ul>
+  </div>
+
+  <h2>What HandShook is</h2>
+  <p>HandShook is a Chrome extension that automates eligible one-click job applications
+  on Handshake from your own logged-in browser session, and can generate tailored
+  cover letters and other application documents with AI assistance. It is operated by
+  an individual developer; contact <a href="mailto:yash.ponnaganti@gmail.com">yash.ponnaganti@gmail.com</a>
+  with any privacy questions.</p>
+
+  <h2>Where your data lives</h2>
+  <table>
+    <tr><th>Data</th><th>Where it is stored</th></tr>
+    <tr><td>Resume, transcript, and other uploaded documents</td><td>Your browser's extension storage (<code>chrome.storage.local</code>). Never uploaded for storage.</td></tr>
+    <tr><td>Google profile (name, email, picture) after sign-in</td><td>Your browser's extension storage.</td></tr>
+    <tr><td>Screening-question preferences (work authorization, relocation, etc.)</td><td>Your browser's extension storage.</td></tr>
+    <tr><td>Run history (counts of applied/skipped jobs)</td><td>Your browser's extension storage. HandShook does not keep a list of the specific jobs you applied to.</td></tr>
+    <tr><td>Handshake username or password</td><td>Nowhere. HandShook never collects them; automation runs inside the Handshake tab you already signed in to.</td></tr>
+  </table>
+
+  <h2>What is sent to our server, and when</h2>
+  <p>Our backend is a stateless service: it processes requests and keeps no database.
+  It receives data only in these moments:</p>
+  <ul>
+    <li><strong>Google sign-in:</strong> your Google access token is verified with Google
+    to confirm your identity, then discarded. We receive your name, email address, and
+    profile picture URL from Google and return them to your browser; we do not store them.</li>
+    <li><strong>AI document generation (only when you click Generate):</strong> the job
+    posting text and the text of your locally stored resume (or other selected documents)
+    are sent to the backend, which forwards them to OpenAI's API to draft the document.
+    The result is returned to you for review. Neither we nor the request content is
+    retained by the backend.</li>
+  </ul>
+  <p>Standard technical logs (timestamps, request paths, status codes — not document
+  contents) are kept briefly in AWS CloudWatch for debugging and abuse prevention.</p>
+
+  <h2>Third-party services</h2>
+  <ul>
+    <li><strong>Google</strong> — sign-in (OpenID, email, basic profile scopes only).</li>
+    <li><strong>OpenAI API</strong> — processes the text you submit for document generation.
+    Per OpenAI's API policy, API data is not used to train their models.</li>
+    <li><strong>Amazon Web Services</strong> — hosts the stateless backend.</li>
+  </ul>
+  <p>HandShook is not affiliated with Handshake. It contains no ads, no analytics
+  trackers, and never sells or shares your data with anyone.</p>
+
+  <h2>Data retention and deletion</h2>
+  <p>Because everything lives in your browser, removing the extension
+  (<em>chrome://extensions → Remove</em>) permanently deletes your documents,
+  preferences, profile, and history. There is no server-side copy to delete.</p>
+
+  <h2>Changes</h2>
+  <p>If this policy changes materially, the "Last updated" date above will change and
+  the new version will be posted at this address.</p>
+</main>
+<footer>© 2026 HandShook · <a href="index.html">handshook.netlify.app</a></footer>
+</body>
+</html>

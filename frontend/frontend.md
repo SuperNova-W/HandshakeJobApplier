@@ -9,13 +9,24 @@ The frontend is a React/TypeScript Chrome Manifest V3 extension built with Vite.
 - Background worker: owns run orchestration and authenticated backend calls.
 - Content script: scans Handshake jobs and drives supported application flows.
 
+## Data storage
+
+All user data lives in `chrome.storage.local` — the backend keeps nothing:
+
+- documents and resume text (`shared/localDocuments.ts`),
+- Google profile, session token, onboarding state (`shared/onboarding.ts`),
+- screening preferences and run history (`shared/localData.ts`).
+
+The backend (`shared/backendApi.ts`) is called only for Google sign-in
+verification and AI document generation/PDF rendering.
+
 ## Authentication
 
 Chrome Identity obtains the Google access token used only for
 `POST /api/users/google`. The backend returns a signed HandShook session token,
 which is stored in `chrome.storage.local` and attached to subsequent API calls.
-Sign-out removes the application session and Chrome's cached Google
-authorization.
+Sign-out clears the local session and Chrome's cached Google authorization —
+there is no server-side session to revoke.
 
 ## Backend configuration
 
@@ -34,11 +45,13 @@ The Vite build also adds that API Gateway origin to the generated manifest's
 ```bash
 npm install
 npm run typecheck
-npm run build
+npm run build          # dev build (includes manifest key + localhost permission)
+npm run package:store  # store build → handshook-store.zip (no key, no localhost)
 ```
 
 Load `frontend/dist` as an unpacked extension. After changing the backend URL or
-OAuth configuration, rebuild and reload the extension.
+OAuth configuration, rebuild and reload the extension. See `../PUBLISHING.md`
+for the Chrome Web Store flow.
 
 ## Ownership boundary
 

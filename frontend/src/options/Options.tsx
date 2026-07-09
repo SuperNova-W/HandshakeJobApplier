@@ -30,7 +30,7 @@ import {
   X,
   type LucideIcon
 } from "lucide-react";
-import { getScreeningPrefs, saveScreeningPrefs } from "../shared/backendApi";
+import { getScreeningPrefs, saveScreeningPrefs } from "../shared/localData";
 import { deleteDocument, downloadDocument, listDocuments } from "../shared/localDocuments";
 import { uploadDocument } from "../shared/documentText";
 import { DEFAULT_SCREENING, normalizeScreeningPrefs } from "../shared/constants";

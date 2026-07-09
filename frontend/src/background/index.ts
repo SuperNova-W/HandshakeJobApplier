@@ -1,19 +1,18 @@
 import {
   authenticateGoogleUser,
   coverLetterPdfBase64,
-  completeCurrentUserOnboarding,
-  createRun,
-  finalizeRun,
   generateCoverLetter as apiGenerateCoverLetter,
   generateOtherDoc as apiGenerateOtherDoc,
   getBackendHealth,
+  otherDocPdfBase64
+} from "../shared/backendApi";
+import {
+  createRun,
+  finalizeRun,
   getRecentRuns,
   getScreeningPrefs,
-  getSettings,
-  otherDocPdfBase64,
-  recordRunOutcome,
-  signOutCurrentUser
-} from "../shared/backendApi";
+  recordRunOutcome
+} from "../shared/localData";
 import {
   createInitialRuntimeState,
   DEFAULT_SCREENING,
@@ -199,20 +198,19 @@ async function loginWithGoogle(): Promise<ExtensionResponse> {
   return { ok: true, user };
 }
 
+// Sign-out and onboarding are purely local now — the backend holds no session
+// state (tokens are self-contained) and no user rows to update.
 async function switchGoogleAccount(): Promise<ExtensionResponse> {
-  await signOutCurrentUser().catch(() => undefined);
   await clearGoogleAuthState();
   return loginWithGoogle();
 }
 
 async function logoutGoogleUser(): Promise<ExtensionResponse> {
-  await signOutCurrentUser().catch(() => undefined);
   await clearGoogleAuthState();
   return { ok: true, signedOut: true };
 }
 
 async function completeOnboarding(): Promise<ExtensionResponse> {
-  await completeCurrentUserOnboarding();
   return { ok: true, onboarding: await markOnboardingComplete() };
 }
 
@@ -221,20 +219,15 @@ async function refreshBackendState() {
     const health = await getBackendHealth();
     runtimeState.backendHealth = health.status === "UP" ? "online" : "offline";
     runtimeState.backendVersion = health.version;
-    runtimeState.backendDatabase = health.database;
   } catch {
     runtimeState.backendHealth = "offline";
     runtimeState.backendVersion = null;
-    runtimeState.backendDatabase = null;
     runtimeState.lastError = "Backend health check failed.";
     return;
   }
 
-  try {
-    runtimeState.settings = await getSettings();
-  } catch {
-    runtimeState.settings = DEFAULT_SETTINGS;
-  }
+  // Run controls are fixed client-side defaults; run history is stored locally.
+  runtimeState.settings = DEFAULT_SETTINGS;
 
   try {
     runtimeState.recentRuns = await getRecentRuns(5);
