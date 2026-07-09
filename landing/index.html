@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>HandShook — Apply to every one-click job, automatically</title>
-<meta name="description" content="A local-first Chrome extension that auto-applies to native Handshake one-click jobs from your own logged-in session. No passwords stored. Every result logged on your machine." />
+<meta name="description" content="A local-first Chrome extension that auto-applies to native Handshake one-click jobs from your own logged-in session. No passwords stored. Your documents and history stay in your browser." />
 <link rel="icon" type="image/png" sizes="32x32" href="brand/icon32.png" />
 <link rel="icon" type="image/png" sizes="16x16" href="brand/icon16.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -188,6 +188,47 @@ img{display:block; max-width:100%;}
 .code-tab.active{color:var(--on-ink); box-shadow:inset 0 -2px 0 var(--signal-light);}
 .code-body{padding:26px; overflow:auto;}
 .code-body pre{margin:0; font-family:var(--code); font-size:13.5px; line-height:1.7; color:var(--on-ink); white-space:pre; tab-size:2;}
+
+/* ---- extension popup mock (#how) ---- */
+.popup-demo{width:100%; max-width:382px; margin-left:auto; background:var(--card);
+  border:1px solid var(--hairline); border-radius:22px; box-shadow:var(--shadow-pop); overflow:hidden;}
+.popup-head{display:flex; align-items:center; gap:10px; padding:15px 18px; border-bottom:1px solid var(--hairline);}
+.pm-brand{display:flex; align-items:center; gap:9px; font-family:var(--display); font-weight:600; font-size:15px; letter-spacing:-.01em;}
+.pm-brand img{height:19px; width:auto;}
+.popup-run{margin-left:auto; display:inline-flex; align-items:center; gap:7px; font-size:12px; font-weight:600;
+  color:var(--signal); background:rgba(207,69,0,.09); padding:5px 11px; border-radius:var(--r-full);}
+.popup-run .rdot{width:7px; height:7px; border-radius:var(--r-full); background:var(--signal-light); animation:pmpulse 1.6s ease-out infinite;}
+@keyframes pmpulse{0%{box-shadow:0 0 0 0 rgba(243,115,56,.5)} 70%{box-shadow:0 0 0 6px rgba(243,115,56,0)} 100%{box-shadow:0 0 0 0 rgba(243,115,56,0)}}
+.popup-prog{padding:16px 18px 8px;}
+.popup-prog .pl{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:9px;}
+.popup-prog .pl b{font-size:13.5px; font-weight:600;}
+.popup-prog .pl em{font-style:normal; font-size:13px; color:var(--graphite); font-variant-numeric:tabular-nums;}
+.popup-bar{height:8px; border-radius:var(--r-full); background:var(--bone); overflow:hidden;}
+.popup-bar i{display:block; height:100%; width:36%; border-radius:var(--r-full); background:linear-gradient(90deg,var(--clay),var(--signal-light));}
+.popup-list{padding:8px 8px 4px; display:flex; flex-direction:column; gap:2px;}
+.job{display:flex; align-items:center; gap:12px; padding:9px 12px; border-radius:14px;}
+.job .jt{min-width:0; flex:1;}
+.job .jt b{display:block; font-size:14px; font-weight:550; letter-spacing:-.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.job .jt .sub{margin-top:1px; font-size:12.5px; color:var(--slate); display:flex; align-items:center; gap:6px; flex-wrap:wrap;}
+.qnote{font-size:11px; font-weight:600; color:var(--signal); background:rgba(207,69,0,.09); padding:1px 7px; border-radius:var(--r-full);}
+.tag{display:inline-flex; align-items:center; gap:5px; flex:0 0 auto; font-size:11.5px; font-weight:650; padding:4px 10px; border-radius:var(--r-full); white-space:nowrap;}
+.tag svg{width:12px; height:12px;}
+.tag.ok{color:#2f7d54; background:rgba(47,125,84,.13);}
+.tag.skip{color:var(--graphite); background:rgba(20,20,19,.06);}
+.popup-foot{display:flex; align-items:center; gap:12px; padding:13px 18px; border-top:1px solid var(--hairline); background:var(--lifted);}
+.popup-foot .sum{font-size:12.5px; color:var(--graphite); font-variant-numeric:tabular-nums;}
+.popup-foot .sum b{color:var(--ink); font-weight:700;}
+.popup-foot .stop{margin-left:auto; display:inline-flex; align-items:center; gap:7px; height:34px; padding:0 15px;
+  border-radius:var(--r-full); background:var(--ink); color:var(--on-ink); font-size:13px; font-weight:500;}
+.popup-foot .stop .sq{width:9px; height:9px; border-radius:2px; background:var(--signal-light);}
+@media(max-width:980px){ .popup-demo{margin:0 auto;} }
+@media(prefers-reduced-motion:reduce){ .popup-run .rdot{animation:none;} }
+
+/* ---- Chrome mark (Add to Chrome buttons) ---- */
+.chrome-mark{width:19px; height:19px; border-radius:50%; flex:0 0 auto; position:relative;
+  background:conic-gradient(from -60deg,#ea4335 0 120deg,#fbbc05 120deg 240deg,#34a853 240deg 360deg);}
+.chrome-mark::before{content:""; position:absolute; inset:22%; border-radius:50%; background:#fff;}
+.chrome-mark::after{content:""; position:absolute; inset:31%; border-radius:50%; background:#4285f4;}
 .c-mute{color:var(--on-ink-mute);}
 .c-org{color:var(--signal-light);}
 .c-grn{color:#cbbfae;}
@@ -217,12 +258,20 @@ img{display:block; max-width:100%;}
 .dark-band .code-well{box-shadow:none; border:1px solid var(--divider-dark); background:var(--ink-deep);}
 
 /* ---- skip-reason rows ---- */
-.reasons{margin-top:0;}
-.reason-row{display:grid; grid-template-columns:210px 1fr; gap:20px; padding:17px 0; border-bottom:1px solid var(--divider-dark); align-items:center;}
-.reason-row:last-child{border-bottom:none;}
-.reason-row .mono{font-size:13px; color:var(--signal-light); font-weight:500;}
-.reason-row p{margin:0; color:var(--on-ink-mute); font-size:15px;}
-@media(max-width:640px){ .reason-row{grid-template-columns:1fr; gap:4px;} }
+/* ---- guardrail cards (skip reasons, dark band) ---- */
+.guardrails{display:flex; flex-direction:column; gap:10px;}
+.grow{display:flex; align-items:flex-start; gap:14px; padding:15px 17px; border-radius:16px;
+  background:rgba(255,255,255,.035); border:1px solid var(--divider-dark); transition:.18s ease;}
+.grow:hover{background:rgba(255,255,255,.06); border-color:rgba(255,255,255,.28);}
+.grow .gi{flex:0 0 auto; width:40px; height:40px; border-radius:12px; display:flex; align-items:center; justify-content:center;
+  background:rgba(243,115,56,.14); color:var(--signal-light);}
+.grow .gi svg{width:20px; height:20px;}
+.grow .gt{min-width:0;}
+.grow .gtop{display:flex; align-items:center; gap:9px; flex-wrap:wrap; margin-bottom:3px;}
+.grow .gtop h4{margin:0; font-size:15.5px; font-weight:600; color:var(--on-ink); letter-spacing:-.01em;}
+.grow .gcode{font-family:var(--code); font-size:11px; font-weight:500; color:var(--signal-light);
+  background:rgba(243,115,56,.13); padding:3px 8px; border-radius:var(--r-full); white-space:nowrap;}
+.grow .gt p{margin:0; font-size:14px; color:var(--on-ink-mute); line-height:1.5;}
 
 /* ============== FAQ ============== */
 .faq{max-width:840px; margin:0 auto;}
@@ -365,17 +414,17 @@ img{display:block; max-width:100%;}
     <div class="hero-copy">
       <span class="eyebrow">Chrome Extension · Manifest V3 · Local-first</span>
       <h1 class="display-xxl">Apply to every one-click job. Automatically.</h1>
-      <p class="lead">A Chrome extension that auto-applies to native Handshake one-click jobs straight from your own logged-in session — then logs every result on your machine. You click <strong>Start</strong>; it does the clicking.</p>
+      <p class="lead">A Chrome extension that auto-applies to native Handshake one-click jobs straight from your own logged-in session — then logs every result in your browser. You click <strong>Start</strong>; it does the clicking.</p>
       <div class="hero-cta">
         <a class="btn btn-primary btn-big" href="coming-soon.html">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Zm0 4.8a5.2 5.2 0 0 1 4.5 2.6h-7.9l-2-3.4A5.18 5.18 0 0 1 12 6.8Zm-7 5.2a5.2 5.2 0 0 1 1.6-3.76l2.94 5.1A5.2 5.2 0 0 0 14 16.9l-1.4 2.43A5.2 5.2 0 0 1 5 12Zm9.4 3.6 1.95-3.38a5.2 5.2 0 0 1-3.7 6.5Z"/></svg>
+          <span class="chrome-mark" aria-hidden="true"></span>
           Add to Chrome — Free
         </a>
         <a class="btn btn-outline btn-big" href="#how">See how it works</a>
       </div>
       <div class="hero-note">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.4 8.4 8 10 4.6-1.6 8-5 8-10V5Z"/><path d="m9 12 2 2 4-4"/></svg>
-        Never stores your Handshake password. Runs entirely on <span class="mono">127.0.0.1</span>.
+        Never stores your Handshake password. Your documents and history stay in your browser.
       </div>
     </div>
 
@@ -405,7 +454,7 @@ img{display:block; max-width:100%;}
     <div class="metrics">
       <div class="metric"><div class="num">1-click</div><div class="lbl">Native Handshake jobs only</div></div>
       <div class="metric"><div class="num">0</div><div class="lbl">Credentials ever stored</div></div>
-      <div class="metric"><div class="num">100%</div><div class="lbl">Local SQLite audit trail</div></div>
+      <div class="metric"><div class="num">Yours</div><div class="lbl">Documents &amp; history stay in your browser</div></div>
       <div class="metric"><div class="num">No&nbsp;dupes</div><div class="lbl">De-duplicated across runs</div></div>
     </div>
   </div>
@@ -417,7 +466,7 @@ img{display:block; max-width:100%;}
     <div class="head">
       <span class="eyebrow">How it works</span>
       <h2 class="display-xl">Three steps, then it runs itself.</h2>
-      <p>No credentials, no scraping your account. The extension drives the Handshake pages you’re already logged into, and a tiny local backend keeps the record.</p>
+      <p>No credentials, no scraping your account. The extension drives the Handshake pages you’re already logged into, and your documents, preferences, and history stay in your browser.</p>
     </div>
 
     <div class="split">
@@ -425,8 +474,8 @@ img{display:block; max-width:100%;}
         <div class="step">
           <div class="n">1</div>
           <div>
-            <h3>Install the extension &amp; start the backend</h3>
-            <p>Add the Chrome extension and run the local companion API with <code>./run.sh</code>. It listens on <code>127.0.0.1:8765</code> and stores everything in SQLite.</p>
+            <h3>Install the extension &amp; sign in</h3>
+            <p>Add HandShook from the Chrome Web Store and sign in with Google. Upload your resume and documents and save your screening answers — all kept in your browser.</p>
           </div>
         </div>
         <div class="step">
@@ -445,25 +494,40 @@ img{display:block; max-width:100%;}
         </div>
       </div>
 
-      <div class="code-well" aria-label="Backend run output">
-        <div class="code-tabs">
-          <span class="code-tab active">run.sh</span>
-          <span class="code-tab">popup</span>
-          <span class="code-tab">sqlite</span>
+      <div class="popup-demo" aria-label="HandShook extension popup running an auto-apply">
+        <div class="popup-head">
+          <span class="pm-brand"><img src="brand/handshook-mark.svg" alt="" />HandShook</span>
+          <span class="popup-run"><span class="rdot"></span>Running</span>
         </div>
-        <div class="code-body">
-<pre><span class="c-mute">$</span> ./run.sh
-<span class="c-grn">✓</span> Spring Boot companion up on <span class="c-key">127.0.0.1:8765</span>
-<span class="c-grn">✓</span> SQLite ready  <span class="c-mute">·  data/handshake.db</span>
-
-<span class="c-mute"># popup → Start Auto-Apply</span>
-<span class="c-org">→</span> scanning job cards .............. <span class="c-grn">14 found</span>
-<span class="c-org">→</span> apply  <span class="c-key">swe-intern-acme</span> ........ <span class="c-grn">APPLIED</span>
-<span class="c-org">→</span> apply  <span class="c-key">data-analyst-globex</span> .... <span class="c-grn">APPLIED</span>
-<span class="c-org">→</span> skip   <span class="c-key">pm-intern-initech</span> ...... <span class="c-mute">APPLY_EXTERNALLY</span>
-<span class="c-org">→</span> skip   <span class="c-key">ux-soylent</span> ........... <span class="c-mute">ALREADY_APPLIED</span>
-
-<span class="c-grn">done</span> · 9 applied · 5 skipped · 0 errors</pre>
+        <div class="popup-prog">
+          <div class="pl"><b>Applying to eligible jobs…</b><em>5 / 14</em></div>
+          <div class="popup-bar"><i></i></div>
+        </div>
+        <div class="popup-list">
+          <div class="job">
+            <span class="jt"><b>Software Engineer Intern</b><span class="sub">Acme Robotics</span></span>
+            <span class="tag ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m20 6-11 11-5-5"/></svg>Applied</span>
+          </div>
+          <div class="job">
+            <span class="jt"><b>Data Analyst</b><span class="sub">Globex <span class="qnote">+2 screening answered</span></span></span>
+            <span class="tag ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m20 6-11 11-5-5"/></svg>Applied</span>
+          </div>
+          <div class="job">
+            <span class="jt"><b>UX Designer</b><span class="sub">Umbrella Corp</span></span>
+            <span class="tag ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m20 6-11 11-5-5"/></svg>Applied</span>
+          </div>
+          <div class="job">
+            <span class="jt"><b>Product Manager Intern</b><span class="sub">Initech</span></span>
+            <span class="tag skip">Skipped · external site</span>
+          </div>
+          <div class="job">
+            <span class="jt"><b>UX Researcher</b><span class="sub">Soylent</span></span>
+            <span class="tag skip">Skipped · already applied</span>
+          </div>
+        </div>
+        <div class="popup-foot">
+          <span class="sum"><b>3</b> applied · <b>2</b> skipped · <b>0</b> errors</span>
+          <span class="stop"><span class="sq"></span>Stop</span>
         </div>
       </div>
     </div>
@@ -498,7 +562,7 @@ img{display:block; max-width:100%;}
       <div class="fcard">
         <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg></div>
         <h3>Skips the risky stuff</h3>
-        <p>Multi-step forms, screening questions, file changes, off-Handshake flows — all skipped with a clear reason code.</p>
+        <p>Multi-step forms, off-Handshake flows, missing documents, unfamiliar screening questions — all skipped with a clear reason code.</p>
       </div>
       <div class="fcard">
         <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20v-6"/><path d="M6 20V10"/><path d="M18 20V4"/></svg></div>
@@ -507,8 +571,8 @@ img{display:block; max-width:100%;}
       </div>
       <div class="fcard">
         <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg></div>
-        <h3>Local audit trail</h3>
-        <p>Settings, run history, and job outcomes live in SQLite on your machine — the single source of truth, never the cloud.</p>
+        <h3>Kept in your browser</h3>
+        <p>Your resume, documents, preferences, and run history live in Chrome’s local storage — never on our servers.</p>
       </div>
     </div>
   </div>
@@ -521,25 +585,48 @@ img{display:block; max-width:100%;}
       <div>
         <span class="eyebrow">Every result, logged locally</span>
         <h2 class="display-xl">If it’s skipped, you know exactly why.</h2>
-        <p class="lead">Nothing is silently passed over. Each skipped job is written to your local database with a machine-readable reason, so a run is a record you can trust.</p>
+        <p class="lead">Nothing is silently passed over. Each skipped job is recorded in your browser with a machine-readable reason, so a run is a record you can trust.</p>
         <ul class="check">
-          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m20 6-11 11-5-5"/></svg> Data stays on <span class="mono">&nbsp;127.0.0.1&nbsp;</span> — no remote hosting, no shared database.</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m20 6-11 11-5-5"/></svg> Your data stays in your browser — our backend has no database and keeps no user data.</li>
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m20 6-11 11-5-5"/></svg> Starts only when you press Start — never auto-runs on page load.</li>
-          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m20 6-11 11-5-5"/></svg> No AI answers, no ranking, no form-filling guesswork in the apply loop.</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m20 6-11 11-5-5"/></svg> No AI decides where to apply — the apply loop is deterministic; AI only drafts documents you review first.</li>
         </ul>
       </div>
 
-      <div class="code-well" aria-label="Skip reason codes">
-        <div class="code-tabs">
-          <span class="code-tab active">skip_reasons</span>
+      <div class="guardrails" aria-label="Skip reason codes">
+        <div class="grow">
+          <span class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.4 2.4 4.6-5"/></svg></span>
+          <div class="gt">
+            <div class="gtop"><h4>Already applied</h4><span class="gcode">ALREADY_APPLIED</span></div>
+            <p>Handshake already shows the job as applied.</p>
+          </div>
         </div>
-        <div class="code-body">
-          <div class="reasons">
-            <div class="reason-row"><span class="mono">ALREADY_APPLIED</span><p>Handshake already shows the job as applied.</p></div>
-            <div class="reason-row"><span class="mono">APPLY_EXTERNALLY</span><p>The flow leaves Handshake or uses an external site.</p></div>
-            <div class="reason-row"><span class="mono">MULTI_STEP_FORM</span><p>Opens a multi-step form requiring input.</p></div>
-            <div class="reason-row"><span class="mono">SCREENING_QUESTIONS</span><p>Presents screening questions to answer.</p></div>
-            <div class="reason-row"><span class="mono">BUTTON_DISABLED</span><p>The apply action isn’t available or enabled.</p></div>
+        <div class="grow">
+          <span class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></span>
+          <div class="gt">
+            <div class="gtop"><h4>Leaves Handshake</h4><span class="gcode">APPLY_EXTERNALLY</span></div>
+            <p>The flow leaves Handshake or uses an external site.</p>
+          </div>
+        </div>
+        <div class="grow">
+          <span class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg></span>
+          <div class="gt">
+            <div class="gtop"><h4>Multi-step form</h4><span class="gcode">MULTI_STEP_FORM</span></div>
+            <p>Opens a multi-step form that needs your input.</p>
+          </div>
+        </div>
+        <div class="grow">
+          <span class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.2 9.2a2.8 2.8 0 0 1 5.5.8c0 1.9-2.8 2.6-2.8 2.6"/><path d="M12 17h.01"/></svg></span>
+          <div class="gt">
+            <div class="gtop"><h4>Unsaved screening answer</h4><span class="gcode">SCREENING_QUESTIONS</span></div>
+            <p>A screening question you haven’t saved an answer for.</p>
+          </div>
+        </div>
+        <div class="grow">
+          <span class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M9 13h6"/><path d="M9 17h4"/></svg></span>
+          <div class="gt">
+            <div class="gtop"><h4>Transcript required</h4><span class="gcode">TRANSCRIPT_REQUIRED</span></div>
+            <p>A transcript is required but none is on file.</p>
           </div>
         </div>
       </div>
@@ -561,15 +648,15 @@ img{display:block; max-width:100%;}
       </details>
       <details>
         <summary>What jobs will it actually apply to? <span class="plus"></span></summary>
-        <div class="ans">Only native Handshake one-click jobs that are eligible: you’re logged in, the page is supported, the Apply button is enabled, the job isn’t already applied, and it doesn’t open a form, screening questions, or an external site.</div>
+        <div class="ans">Only native Handshake one-click jobs that are eligible: you’re logged in, the page is supported, the Apply button is enabled, and the job isn’t already applied. It won’t follow multi-step forms or external sites. Screening questions are fine — it answers the Yes/No ones from your saved answers, and skips a job only when it hits one you haven’t answered.</div>
       </details>
       <details>
         <summary>Will it spam applications or run on its own? <span class="plus"></span></summary>
         <div class="ans">No. A run only ever begins when you click <strong>Start Auto-Apply</strong> in the popup. It de-duplicates by Handshake job ID, so re-running won’t apply to the same job twice.</div>
       </details>
       <details>
-        <summary>Why is there a local backend? <span class="plus"></span></summary>
-        <div class="ans">A small Spring Boot companion API on <span class="mono">127.0.0.1:8765</span> keeps your settings, run history, and per-job outcomes in SQLite. It’s the source of truth for what’s been applied to — and it stays entirely on your machine.</div>
+        <summary>Where is my data stored? <span class="plus"></span></summary>
+        <div class="ans">In your browser. Your resume, documents, screening answers, and run history live in Chrome’s local extension storage. Our backend is a stateless AI service that drafts cover letters and requested documents on demand — it has no database and keeps no user data.</div>
       </details>
       <details>
         <summary>Which browsers are supported? <span class="plus"></span></summary>
@@ -583,10 +670,10 @@ img{display:block; max-width:100%;}
 <section class="band cta-band" id="get">
   <div class="wrap">
     <h2 class="display-xxl">Stop clicking Apply.</h2>
-    <p>Install the extension, start the local backend, open Handshake, and let the one-click jobs take care of themselves.</p>
+    <p>Install the extension, sign in, open Handshake, and let the one-click jobs take care of themselves.</p>
     <div class="row">
       <a class="btn btn-primary btn-big" href="coming-soon.html">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Zm0 4.8a5.2 5.2 0 0 1 4.5 2.6h-7.9l-2-3.4A5.18 5.18 0 0 1 12 6.8Zm-7 5.2a5.2 5.2 0 0 1 1.6-3.76l2.94 5.1A5.2 5.2 0 0 0 14 16.9l-1.4 2.43A5.2 5.2 0 0 1 5 12Zm9.4 3.6 1.95-3.38a5.2 5.2 0 0 1-3.7 6.5Z"/></svg>
+        <span class="chrome-mark" aria-hidden="true"></span>
         Add to Chrome — Free
       </a>
       <a class="btn btn-outline btn-big" href="#">Read the docs</a>
@@ -601,7 +688,7 @@ img{display:block; max-width:100%;}
     <div class="footer-top">
       <div>
         <a class="brand" href="#top"><img class="mark" src="brand/handshook-mark-reversed.svg" alt="" />HandSh<span class="oo"><img src="brand/handshook-mark-reversed.svg" alt="" /></span>k</a>
-        <p class="footer-blurb">A local-first Chrome extension that auto-applies to native Handshake one-click jobs — and keeps the receipts on your machine.</p>
+        <p class="footer-blurb">A local-first Chrome extension that auto-applies to native Handshake one-click jobs — and keeps the receipts in your browser.</p>
       </div>
       <div class="fcol">
         <h4>Product</h4>
@@ -619,7 +706,7 @@ img{display:block; max-width:100%;}
       </div>
       <div class="fcol">
         <h4>Legal</h4>
-        <a href="#">Privacy policy</a>
+        <a href="privacy.html">Privacy policy</a>
         <a href="#">Terms</a>
         <a href="#">Responsible use</a>
       </div>
@@ -646,11 +733,11 @@ img{display:block; max-width:100%;}
     ['.metrics .metric',                             80,  'r-scale' ],
     ['#how .head > *',                               80,  ''        ],
     ['.steps .step',                                100,  'r-left'  ],
-    ['#how .code-well',                               0,  'r-right' ],
+    ['#how .popup-demo',                              0,  'r-right' ],
     ['#features .head > *',                          80,  ''        ],
     ['.fgrid .fcard',                                70,  'r-scale' ],
     ['.dark-band .split > div:first-child > *',      90,  ''        ],
-    ['.dark-band .code-well',                         0,  'r-right' ],
+    ['.dark-band .guardrails',                        0,  'r-right' ],
     ['#faq .head > *',                               80,  ''        ],
     ['.faq details',                                 60,  ''        ],
     ['.cta-band .wrap > *',                          90,  ''        ],
