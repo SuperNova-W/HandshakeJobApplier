@@ -33,6 +33,16 @@ Resources:
     Type: AWS::Serverless::Api
     Properties:
       StageName: Prod
+      # The cover-letter / other-docs PDF endpoints return binary bytes, which the
+      # Lambda proxy hands back base64-encoded (isBase64Encoded=true). Without a
+      # matching binary media type, API Gateway would relay that base64 as text and
+      # the extension's arrayBuffer() would receive garbage instead of a PDF. "*/*"
+      # makes API Gateway honor isBase64Encoded for every response: it decodes the
+      # PDF responses to binary and passes the JSON responses (isBase64Encoded=false)
+      # through as text. aws-serverless-java-container base64-decodes the request
+      # bodies API Gateway then sends, so JSON POSTs keep working.
+      BinaryMediaTypes:
+        - "*/*"
       # Coarse global throttle in front of the app's per-user AI limiter.
       MethodSettings:
         - ResourcePath: "/*"
